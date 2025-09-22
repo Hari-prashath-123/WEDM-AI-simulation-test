@@ -88,72 +88,77 @@ export interface ModelResult {
 
 // Support Vector Machine implementation
 export async function trainSVM(
-  data: { trainData: EDMTrainingData[]; testData: EDMTrainingData[] }
+  data: EDMTrainingData[],
+  kFolds: number = 5
 ): Promise<ModelResult> {
   const startTime = Date.now();
-  const train = data.trainData;
-  const test = data.testData;
-  console.log(`Training SVM with ${train.length} training samples and ${test.length} test samples`);
-
-  // Prepare features and targets for train and test
-  const trainFeatures = train.map(d => [
-    d.voltage / 300,
-    d.current / 50,
-    d.pulseOnTime / 100,
-    d.pulseOffTime / 200,
-    d.wireSpeed / 500,
-    d.dielectricFlow / 20
-  ]);
-  const trainTargets = train.map(d => [
-    d.materialRemovalRate,
-    d.surfaceRoughness,
-    d.dimensionalAccuracy,
-    d.processingTime
-  ]);
-  const testFeatures = test.map(d => [
-    d.voltage / 300,
-    d.current / 50,
-    d.pulseOnTime / 100,
-    d.pulseOffTime / 200,
-    d.wireSpeed / 500,
-    d.dielectricFlow / 20
-  ]);
-  const testTargets = test.map(d => [
-    d.materialRemovalRate,
-    d.surfaceRoughness,
-    d.dimensionalAccuracy,
-    d.processingTime
-  ]);
-
-  // Initialize weights using least squares approximation
-  const weights: number[][] = [];
-  for (let output = 0; output < 4; output++) {
-    const y = trainTargets.map(t => t[output]);
-    const w = solveLeastSquares(trainFeatures, y);
-    weights.push(w);
-  }
-
-  // Evaluate on test data
-  let totalError = 0;
-  let n = 0;
-  let flatTargets = testTargets.flat();
-  let mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
-  let residualSum = 0;
-  let totalSumSquares = 0;
-  for (let i = 0; i < testFeatures.length; i++) {
-    const predicted = predictSVM(testFeatures[i], weights);
-    const actual = testTargets[i];
-    for (let j = 0; j < 4; j++) {
-      const diff = predicted[j] - actual[j];
-      totalError += diff * diff;
-      residualSum += diff * diff;
-      totalSumSquares += (actual[j] - mean) * (actual[j] - mean);
-      n++;
+  const folds = getKFoldSplits(data, kFolds);
+  const foldResults = [];
+  let weights: number[][] = [];
+  for (let foldIdx = 0; foldIdx < folds.length; foldIdx++) {
+    const { trainData: train, testData: test } = folds[foldIdx];
+    // Prepare features and targets for train and test
+    const trainFeatures = train.map(d => [
+      d.voltage / 300,
+      d.current / 50,
+      d.pulseOnTime / 100,
+      d.pulseOffTime / 200,
+      d.wireSpeed / 500,
+      d.dielectricFlow / 20
+    ]);
+    const trainTargets = train.map(d => [
+      d.materialRemovalRate,
+      d.surfaceRoughness,
+      d.dimensionalAccuracy,
+      d.processingTime
+    ]);
+    const testFeatures = test.map(d => [
+      d.voltage / 300,
+      d.current / 50,
+      d.pulseOnTime / 100,
+      d.pulseOffTime / 200,
+      d.wireSpeed / 500,
+      d.dielectricFlow / 20
+    ]);
+    const testTargets = test.map(d => [
+      d.materialRemovalRate,
+      d.surfaceRoughness,
+      d.dimensionalAccuracy,
+      d.processingTime
+    ]);
+    // Initialize weights using least squares approximation
+    weights = [];
+    for (let output = 0; output < 4; output++) {
+      const y = trainTargets.map(t => t[output]);
+      const w = solveLeastSquares(trainFeatures, y);
+      weights.push(w);
     }
+    // Evaluate on test data
+    let totalError = 0;
+    let n = 0;
+    let flatTargets = testTargets.flat();
+    let mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
+    let residualSum = 0;
+    let totalSumSquares = 0;
+    for (let i = 0; i < testFeatures.length; i++) {
+      const predicted = predictSVM(testFeatures[i], weights);
+      const actual = testTargets[i];
+      for (let j = 0; j < 4; j++) {
+        const diff = predicted[j] - actual[j];
+        totalError += diff * diff;
+        residualSum += diff * diff;
+        totalSumSquares += (actual[j] - mean) * (actual[j] - mean);
+        n++;
+      }
+    }
+    const rmse = Math.sqrt(totalError / n);
+    const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
+    foldResults.push({ rmse, rSquared, samples: train.length });
   }
-  const rmse = Math.sqrt(totalError / n);
-  const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
-
+  // Average metrics
+  const avgRmse = foldResults.reduce((sum, f) => sum + f.rmse, 0) / foldResults.length;
+  const avgR2 = foldResults.reduce((sum, f) => sum + f.rSquared, 0) / foldResults.length;
+  // Use last weights for prediction
   const predict = (params: any) => {
     const input = [
       (params.laserPower || 3) / 6,
@@ -171,12 +176,11 @@ export async function trainSVM(
       processingTime: Math.max(1, Math.min(300, result[3] * 5))
     };
   };
-
   return {
-    rSquared,
+    rSquared: avgR2,
     trainingTime: Date.now() - startTime,
-    samples: train.length,
-    rmse,
+    samples: data.length,
+    rmse: avgRmse,
     weights: weights.flat(),
     predict
   };
@@ -215,12 +219,13 @@ export interface ANNConfig {
   learningRate: number;
   epochs: number;
   hiddenUnits: number;
+  dropoutRate?: number; // Add dropoutRate as optional
 }
 
 
 export async function trainANN(
   data: EDMTrainingData[],
-  config: ANNConfig = { learningRate: 0.01, epochs: 50, hiddenUnits: 12 },
+  config: ANNConfig = { learningRate: 0.01, epochs: 50, hiddenUnits: 12, dropoutRate: 0.2 },
   useFeatureEngineering: boolean = true,
   kFolds: number = 5
 ): Promise<any> {
@@ -266,10 +271,24 @@ export async function trainANN(
     const ys = tf.tensor2d(trainTargets);
     const xsTest = tf.tensor2d(engineeredTestFeatures);
     const ysTest = tf.tensor2d(testTargets);
-    // Build model
+    // Build model with L2 regularization and dropout
     const model = tf.sequential();
-    model.add(tf.layers.dense({ inputShape: [useFeatureEngineering ? 9 : 6], units: config.hiddenUnits, activation: 'relu' }));
-    model.add(tf.layers.dense({ units: 4, activation: 'linear' }));
+    model.add(tf.layers.dense({
+      inputShape: [useFeatureEngineering ? 9 : 6],
+      units: config.hiddenUnits,
+      activation: 'relu',
+      kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
+      biasRegularizer: tf.regularizers.l2({ l2: 0.01 })
+    }));
+    if (config.dropoutRate && config.dropoutRate > 0) {
+      model.add(tf.layers.dropout({ rate: config.dropoutRate }));
+    }
+    model.add(tf.layers.dense({
+      units: 4,
+      activation: 'linear',
+      kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
+      biasRegularizer: tf.regularizers.l2({ l2: 0.01 })
+    }));
     model.compile({ optimizer: tf.train.adam(config.learningRate), loss: 'meanSquaredError' });
     // Train model
     await model.fit(xs, ys, {
@@ -335,8 +354,22 @@ export async function trainANN(
   const xsAll = tf.tensor2d(engineeredAllFeatures);
   const ysAll = tf.tensor2d(allTargets);
   const finalModel = tf.sequential();
-  finalModel.add(tf.layers.dense({ inputShape: [useFeatureEngineering ? 9 : 6], units: config.hiddenUnits, activation: 'relu' }));
-  finalModel.add(tf.layers.dense({ units: 4, activation: 'linear' }));
+  finalModel.add(tf.layers.dense({
+    inputShape: [useFeatureEngineering ? 9 : 6],
+    units: config.hiddenUnits,
+    activation: 'relu',
+    kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
+    biasRegularizer: tf.regularizers.l2({ l2: 0.01 })
+  }));
+  if (config.dropoutRate && config.dropoutRate > 0) {
+    finalModel.add(tf.layers.dropout({ rate: config.dropoutRate }));
+  }
+  finalModel.add(tf.layers.dense({
+    units: 4,
+    activation: 'linear',
+    kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
+    biasRegularizer: tf.regularizers.l2({ l2: 0.01 })
+  }));
   finalModel.compile({ optimizer: tf.train.adam(config.learningRate), loss: 'meanSquaredError' });
   await finalModel.fit(xsAll, ysAll, {
     epochs: config.epochs,
@@ -425,97 +458,101 @@ export async function trainANN(
 
 // Extreme Learning Machine implementation
 export async function trainELM(
-  data: { trainData: EDMTrainingData[]; testData: EDMTrainingData[] }
+  data: EDMTrainingData[],
+  kFolds: number = 5
 ): Promise<ModelResult> {
   const startTime = Date.now();
-  const train = data.trainData;
-  const test = data.testData;
-  console.log(`Training ELM with ${train.length} training samples and ${test.length} test samples`);
-
+  const folds = getKFoldSplits(data, kFolds);
+  const foldResults = [];
+  let inputWeights: number[][] = [];
+  let biases: number[] = [];
+  let outputWeights: number[][] = [];
   const inputSize = 6;
   const hiddenSize = 20;
-
-  // Random input weights and biases (fixed during training)
-  const inputWeights = Array(hiddenSize).fill(0).map(() => 
-    Array(inputSize).fill(0).map(() => Math.random() * 2 - 1)
-  );
-  const biases = Array(hiddenSize).fill(0).map(() => Math.random() * 2 - 1);
-
-  // Prepare training and test data
-  const trainFeatures = train.map(d => [
-    d.voltage / 300,
-    d.current / 50,
-    d.pulseOnTime / 100,
-    d.pulseOffTime / 200,
-    d.wireSpeed / 500,
-    d.dielectricFlow / 20
-  ]);
-  const trainTargets = train.map(d => [
-    d.materialRemovalRate / 10,
-    d.surfaceRoughness / 5,
-    d.dimensionalAccuracy / 100,
-    d.processingTime / 100
-  ]);
-  const testFeatures = test.map(d => [
-    d.voltage / 300,
-    d.current / 50,
-    d.pulseOnTime / 100,
-    d.pulseOffTime / 200,
-    d.wireSpeed / 500,
-    d.dielectricFlow / 20
-  ]);
-  const testTargets = test.map(d => [
-    d.materialRemovalRate / 10,
-    d.surfaceRoughness / 5,
-    d.dimensionalAccuracy / 100,
-    d.processingTime / 100
-  ]);
-
-  // Calculate hidden layer output matrix H for training
-  const H: number[][] = [];
-  for (let i = 0; i < trainFeatures.length; i++) {
-    const hiddenOutput: number[] = [];
-    for (let j = 0; j < hiddenSize; j++) {
-      let sum = biases[j];
-      for (let k = 0; k < inputSize; k++) {
-        sum += trainFeatures[i][k] * inputWeights[j][k];
+  for (let foldIdx = 0; foldIdx < folds.length; foldIdx++) {
+    const { trainData: train, testData: test } = folds[foldIdx];
+    // Random input weights and biases (fixed during training)
+    inputWeights = Array(hiddenSize).fill(0).map(() => 
+      Array(inputSize).fill(0).map(() => Math.random() * 2 - 1)
+    );
+    biases = Array(hiddenSize).fill(0).map(() => Math.random() * 2 - 1);
+    // Prepare training and test data
+    const trainFeatures = train.map(d => [
+      d.voltage / 300,
+      d.current / 50,
+      d.pulseOnTime / 100,
+      d.pulseOffTime / 200,
+      d.wireSpeed / 500,
+      d.dielectricFlow / 20
+    ]);
+    const trainTargets = train.map(d => [
+      d.materialRemovalRate / 10,
+      d.surfaceRoughness / 5,
+      d.dimensionalAccuracy / 100,
+      d.processingTime / 100
+    ]);
+    const testFeatures = test.map(d => [
+      d.voltage / 300,
+      d.current / 50,
+      d.pulseOnTime / 100,
+      d.pulseOffTime / 200,
+      d.wireSpeed / 500,
+      d.dielectricFlow / 20
+    ]);
+    const testTargets = test.map(d => [
+      d.materialRemovalRate / 10,
+      d.surfaceRoughness / 5,
+      d.dimensionalAccuracy / 100,
+      d.processingTime / 100
+    ]);
+    // Calculate hidden layer output matrix H for training
+    const H: number[][] = [];
+    for (let i = 0; i < trainFeatures.length; i++) {
+      const hiddenOutput: number[] = [];
+      for (let j = 0; j < hiddenSize; j++) {
+        let sum = biases[j];
+        for (let k = 0; k < inputSize; k++) {
+          sum += trainFeatures[i][k] * inputWeights[j][k];
+        }
+        hiddenOutput.push(1 / (1 + Math.exp(-sum)));
       }
-      hiddenOutput.push(1 / (1 + Math.exp(-sum)));
+      H.push(hiddenOutput);
     }
-    H.push(hiddenOutput);
-  }
-
-  // Calculate output weights using Moore-Penrose pseudoinverse
-  const HT = transpose(H);
-  const HTH = matrixMultiply(HT, H);
-  for (let i = 0; i < HTH.length; i++) {
-    HTH[i][i] += 0.001;
-  }
-  const HTHInv = matrixInverse(HTH);
-  const HTHInvHT = matrixMultiply(HTHInv, HT);
-  const outputWeights = matrixMultiply(HTHInvHT, trainTargets);
-
-  // Evaluate on test data
-  let totalError = 0;
-  let n = 0;
-  let flatTargets = testTargets.flat();
-  let mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
-  let residualSum = 0;
-  let totalSumSquares = 0;
-  for (let i = 0; i < testFeatures.length; i++) {
-    const predicted = predictELM(testFeatures[i], inputWeights, biases, outputWeights);
-    const actual = testTargets[i];
-    for (let j = 0; j < 4; j++) {
-      const diff = predicted[j] - actual[j];
-      totalError += diff * diff;
-      residualSum += diff * diff;
-      totalSumSquares += (actual[j] - mean) * (actual[j] - mean);
-      n++;
+    // Calculate output weights using Moore-Penrose pseudoinverse
+    const HT = transpose(H);
+    const HTH = matrixMultiply(HT, H);
+    for (let i = 0; i < HTH.length; i++) {
+      HTH[i][i] += 0.001;
     }
+    const HTHInv = matrixInverse(HTH);
+    const HTHInvHT = matrixMultiply(HTHInv, HT);
+    outputWeights = matrixMultiply(HTHInvHT, trainTargets);
+    // Evaluate on test data
+    let totalError = 0;
+    let n = 0;
+    let flatTargets = testTargets.flat();
+    let mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
+    let residualSum = 0;
+    let totalSumSquares = 0;
+    for (let i = 0; i < testFeatures.length; i++) {
+      const predicted = predictELM(testFeatures[i], inputWeights, biases, outputWeights);
+      const actual = testTargets[i];
+      for (let j = 0; j < 4; j++) {
+        const diff = predicted[j] - actual[j];
+        totalError += diff * diff;
+        residualSum += diff * diff;
+        totalSumSquares += (actual[j] - mean) * (actual[j] - mean);
+        n++;
+      }
+    }
+    const rmse = Math.sqrt(totalError / n);
+    const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
+    foldResults.push({ rmse, rSquared, samples: train.length });
   }
-  const rmse = Math.sqrt(totalError / n);
-  const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
-
+  // Average metrics
+  const avgRmse = foldResults.reduce((sum, f) => sum + f.rmse, 0) / foldResults.length;
+  const avgR2 = foldResults.reduce((sum, f) => sum + f.rSquared, 0) / foldResults.length;
+  // Use last weights for prediction
   const predict = (params: any) => {
     const input = [
       (params.laserPower || 3) / 6,
@@ -533,12 +570,11 @@ export async function trainELM(
       processingTime: Math.max(1, Math.min(300, result[3] * 100))
     };
   };
-
   return {
-    rSquared,
+    rSquared: avgR2,
     trainingTime: Date.now() - startTime,
-    samples: train.length,
-    rmse,
+    samples: data.length,
+    rmse: avgRmse,
     modelData: { inputWeights, biases, outputWeights },
     predict
   };
@@ -571,117 +607,115 @@ function predictELM(input: number[], inputWeights: number[][], biases: number[],
 
 // Genetic Algorithm implementation
 export async function trainGA(
-  data: { trainData: EDMTrainingData[]; testData: EDMTrainingData[] }
+  data: EDMTrainingData[],
+  kFolds: number = 5
 ): Promise<ModelResult> {
   const startTime = Date.now();
-  const train = data.trainData;
-  const test = data.testData;
-  console.log(`Training GA with ${train.length} training samples and ${test.length} test samples`);
-
-  const populationSize = 50;
-  const generations = 100;
-  const mutationRate = 0.1;
-  const crossoverRate = 0.8;
-  const chromosomeLength = 6 * 4 + 4;
-
-  // Prepare training and test data
-  const trainFeatures = train.map(d => [
-    d.voltage / 300,
-    d.current / 50,
-    d.pulseOnTime / 100,
-    d.pulseOffTime / 200,
-    d.wireSpeed / 500,
-    d.dielectricFlow / 20
-  ]);
-  const trainTargets = train.map(d => [
-    d.materialRemovalRate / 10,
-    d.surfaceRoughness / 5,
-    d.dimensionalAccuracy / 100,
-    d.processingTime / 100
-  ]);
-  const testFeatures = test.map(d => [
-    d.voltage / 300,
-    d.current / 50,
-    d.pulseOnTime / 100,
-    d.pulseOffTime / 200,
-    d.wireSpeed / 500,
-    d.dielectricFlow / 20
-  ]);
-  const testTargets = test.map(d => [
-    d.materialRemovalRate / 10,
-    d.surfaceRoughness / 5,
-    d.dimensionalAccuracy / 100,
-    d.processingTime / 100
-  ]);
-
-  // Initialize population
-  let population: number[][] = [];
-  for (let i = 0; i < populationSize; i++) {
-    const chromosome: number[] = [];
-    for (let j = 0; j < chromosomeLength; j++) {
-      chromosome.push(Math.random() * 2 - 1);
+  const folds = getKFoldSplits(data, kFolds);
+  const foldResults = [];
+  let bestChromosome: number[] = [];
+  for (let foldIdx = 0; foldIdx < folds.length; foldIdx++) {
+    const { trainData: train, testData: test } = folds[foldIdx];
+    const populationSize = 50;
+    const generations = 100;
+    const mutationRate = 0.1;
+    const crossoverRate = 0.8;
+    const chromosomeLength = 6 * 4 + 4;
+    // Prepare training and test data
+    const trainFeatures = train.map(d => [
+      d.voltage / 300,
+      d.current / 50,
+      d.pulseOnTime / 100,
+      d.pulseOffTime / 200,
+      d.wireSpeed / 500,
+      d.dielectricFlow / 20
+    ]);
+    const trainTargets = train.map(d => [
+      d.materialRemovalRate / 10,
+      d.surfaceRoughness / 5,
+      d.dimensionalAccuracy / 100,
+      d.processingTime / 100
+    ]);
+    const testFeatures = test.map(d => [
+      d.voltage / 300,
+      d.current / 50,
+      d.pulseOnTime / 100,
+      d.pulseOffTime / 200,
+      d.wireSpeed / 500,
+      d.dielectricFlow / 20
+    ]);
+    const testTargets = test.map(d => [
+      d.materialRemovalRate / 10,
+      d.surfaceRoughness / 5,
+      d.dimensionalAccuracy / 100,
+      d.processingTime / 100
+    ]);
+    // Initialize population
+    let population: number[][] = [];
+    for (let i = 0; i < populationSize; i++) {
+      const chromosome: number[] = [];
+      for (let j = 0; j < chromosomeLength; j++) {
+        chromosome.push(Math.random() * 2 - 1);
+      }
+      population.push(chromosome);
     }
-    population.push(chromosome);
-  }
-
-  // Evolution loop
-  for (let gen = 0; gen < generations; gen++) {
-    // Evaluate fitness on training data
-    const fitness = population.map(chromosome => evaluateFitness(chromosome, trainFeatures, trainTargets));
-    // Selection and reproduction
-    const newPopulation: number[][] = [];
-    // Elitism - keep best 10%
-    const sortedIndices = fitness.map((f, i) => ({ fitness: f, index: i }))
-      .sort((a, b) => b.fitness - a.fitness);
-    const eliteCount = Math.floor(populationSize * 0.1);
-    for (let i = 0; i < eliteCount; i++) {
-      newPopulation.push([...population[sortedIndices[i].index]]);
+    // Evolution loop
+    for (let gen = 0; gen < generations; gen++) {
+      // Evaluate fitness on training data
+      const fitness = population.map(chromosome => evaluateFitness(chromosome, trainFeatures, trainTargets));
+      // Selection and reproduction
+      const newPopulation: number[][] = [];
+      // Elitism - keep best 10%
+      const sortedIndices = fitness.map((f, i) => ({ fitness: f, index: i }))
+        .sort((a, b) => b.fitness - a.fitness);
+      const eliteCount = Math.floor(populationSize * 0.1);
+      for (let i = 0; i < eliteCount; i++) {
+        newPopulation.push([...population[sortedIndices[i].index]]);
+      }
+      // Generate rest through crossover and mutation
+      while (newPopulation.length < populationSize) {
+        const parent1 = tournamentSelection(population, fitness);
+        const parent2 = tournamentSelection(population, fitness);
+        let [child1, child2] = crossover(parent1, parent2, crossoverRate);
+        child1 = mutate(child1, mutationRate);
+        child2 = mutate(child2, mutationRate);
+        newPopulation.push(child1);
+        if (newPopulation.length < populationSize) {
+          newPopulation.push(child2);
+        }
+      }
+      population = newPopulation;
     }
-    // Generate rest through crossover and mutation
-    while (newPopulation.length < populationSize) {
-      const parent1 = tournamentSelection(population, fitness);
-      const parent2 = tournamentSelection(population, fitness);
-      let [child1, child2] = crossover(parent1, parent2, crossoverRate);
-      child1 = mutate(child1, mutationRate);
-      child2 = mutate(child2, mutationRate);
-      newPopulation.push(child1);
-      if (newPopulation.length < populationSize) {
-        newPopulation.push(child2);
+    // Get best individual
+    const finalFitness = population.map(chromosome => evaluateFitness(chromosome, trainFeatures, trainTargets));
+    const bestIndex = finalFitness.indexOf(Math.max(...finalFitness));
+    bestChromosome = population[bestIndex];
+    // Evaluate on test data
+    let totalError = 0;
+    let n = 0;
+    let flatTargets = testTargets.flat();
+    let mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
+    let residualSum = 0;
+    let totalSumSquares = 0;
+    for (let i = 0; i < testFeatures.length; i++) {
+      const predicted = predictGA(testFeatures[i], bestChromosome);
+      const actual = testTargets[i];
+      for (let j = 0; j < 4; j++) {
+        const diff = predicted[j] - actual[j];
+        totalError += diff * diff;
+        residualSum += diff * diff;
+        totalSumSquares += (actual[j] - mean) * (actual[j] - mean);
+        n++;
       }
     }
-    population = newPopulation;
-    if (gen % 20 === 0) {
-      const bestFitness = Math.max(...fitness);
-      console.log(`Generation ${gen}, Best Fitness: ${bestFitness}`);
-    }
+    const rmse = Math.sqrt(totalError / n);
+    const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
+    foldResults.push({ rmse, rSquared, samples: train.length });
   }
-
-  // Get best individual
-  const finalFitness = population.map(chromosome => evaluateFitness(chromosome, trainFeatures, trainTargets));
-  const bestIndex = finalFitness.indexOf(Math.max(...finalFitness));
-  const bestChromosome = population[bestIndex];
-
-  // Evaluate on test data
-  let totalError = 0;
-  let n = 0;
-  let flatTargets = testTargets.flat();
-  let mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
-  let residualSum = 0;
-  let totalSumSquares = 0;
-  for (let i = 0; i < testFeatures.length; i++) {
-    const predicted = predictGA(testFeatures[i], bestChromosome);
-    const actual = testTargets[i];
-    for (let j = 0; j < 4; j++) {
-      const diff = predicted[j] - actual[j];
-      totalError += diff * diff;
-      residualSum += diff * diff;
-      totalSumSquares += (actual[j] - mean) * (actual[j] - mean);
-      n++;
-    }
-  }
-  const rmse = Math.sqrt(totalError / n);
-  const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
-
+  // Average metrics
+  const avgRmse = foldResults.reduce((sum, f) => sum + f.rmse, 0) / foldResults.length;
+  const avgR2 = foldResults.reduce((sum, f) => sum + f.rSquared, 0) / foldResults.length;
+  // Use last bestChromosome for prediction
   const predict = (params: any) => {
     const input = [
       (params.laserPower || 3) / 6,
@@ -699,12 +733,11 @@ export async function trainGA(
       processingTime: Math.max(1, Math.min(300, result[3] * 100))
     };
   };
-
   return {
-    rSquared,
+    rSquared: avgR2,
     trainingTime: Date.now() - startTime,
-    samples: train.length,
-    rmse,
+    samples: data.length,
+    rmse: avgRmse,
     weights: bestChromosome,
     predict
   };

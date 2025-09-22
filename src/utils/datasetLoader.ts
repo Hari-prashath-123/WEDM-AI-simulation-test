@@ -280,3 +280,82 @@ function generateSyntheticData(): EDMTrainingData[] {
   }
   return data;
 }
+
+/**
+ * Augments EDMTrainingData by creating multiplier times more samples with ±5% random noise on each numerical feature.
+ * @param data Array of EDMTrainingData
+ * @param multiplier Number of times to increase the dataset size
+ * @returns Augmented EDMTrainingData array
+ */
+export function augmentData(data: EDMTrainingData[], multiplier: number): EDMTrainingData[] {
+  if (multiplier <= 1) return [...data];
+  const augmented: EDMTrainingData[] = [];
+  // List of numerical fields in EDMTrainingData
+  const numericFields: (keyof EDMTrainingData)[] = [
+    'voltage',
+    'current',
+    'pulseOnTime',
+    'pulseOffTime',
+    'wireSpeed',
+    'dielectricFlow',
+    'materialRemovalRate',
+    'surfaceRoughness',
+    'dimensionalAccuracy',
+    'processingTime'
+  ];
+  for (let i = 0; i < multiplier; i++) {
+    for (const sample of data) {
+      const noisySample: EDMTrainingData = { ...sample };
+      for (const key of numericFields) {
+        const value = noisySample[key];
+        if (typeof value === 'number') {
+          const noise = (Math.random() * 0.1 - 0.05) * value;
+          noisySample[key] = value + noise;
+        }
+      }
+      augmented.push(noisySample);
+    }
+  }
+  return augmented;
+}
+
+/**
+ * Generates new EDMTrainingData points by interpolating between two random points from the training set.
+ * For each new point, selects two random points and creates a weighted average.
+ * @param data Array of EDMTrainingData
+ * @param numNewPoints Number of new points to generate
+ * @returns Array of new EDMTrainingData points
+ */
+export function generateAugmentedData(data: EDMTrainingData[], numNewPoints: number): EDMTrainingData[] {
+  if (data.length < 2 || numNewPoints < 1) return [];
+  const numericFields: (keyof EDMTrainingData)[] = [
+    'voltage',
+    'current',
+    'pulseOnTime',
+    'pulseOffTime',
+    'wireSpeed',
+    'dielectricFlow',
+    'materialRemovalRate',
+    'surfaceRoughness',
+    'dimensionalAccuracy',
+    'processingTime'
+  ];
+  const augmented: EDMTrainingData[] = [];
+  for (let i = 0; i < numNewPoints; i++) {
+    // Pick two random indices
+    const idx1 = Math.floor(Math.random() * data.length);
+    let idx2 = Math.floor(Math.random() * data.length);
+    while (idx2 === idx1) idx2 = Math.floor(Math.random() * data.length);
+    const a = data[idx1];
+    const b = data[idx2];
+    // Random weight between 0 and 1
+    const w = Math.random();
+    // Interpolate each numeric field
+    const newPoint: EDMTrainingData = { ...a };
+    for (const key of numericFields) {
+      newPoint[key] = a[key] * w + b[key] * (1 - w);
+    }
+    augmented.push(newPoint);
+  }
+  return augmented;
+}

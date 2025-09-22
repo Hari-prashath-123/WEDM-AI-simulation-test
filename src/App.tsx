@@ -23,6 +23,45 @@ interface EDMParameters {
   hazDepth: number;
   linearEnergy: number;
 }
+// Returns the weighted average of predictions from all trained models (SVM, ANN, ELM, GA) for each output metric
+function getEnsemblePrediction(
+  predictions: Record<string, any>,
+  trainedModels: Record<string, import('./utils/aiModels').ModelResult>
+) {
+  // List of model keys to include in ensemble
+  const modelKeys = ['SVM', 'ANN', 'ELM', 'GA'];
+  // Filter only available predictions and their corresponding R² scores
+  const available = modelKeys
+    .map(k => ({
+      prediction: predictions[k],
+      rSquared: trainedModels[k]?.rSquared ?? 0
+    }))
+    .filter(item => item.prediction && typeof item.rSquared === 'number' && item.rSquared > 0);
+
+  if (available.length === 0) return null;
+
+  // Output metrics to average
+  const metrics = [
+    'materialRemovalRate',
+    'surfaceRoughness',
+    'dimensionalAccuracy',
+    'processingTime',
+  ];
+
+  // Calculate the sum of R² scores for normalization
+  const totalWeight = available.reduce((sum, item) => sum + item.rSquared, 0);
+
+  const ensemble: any = {};
+  for (const metric of metrics) {
+    // Weighted average across all models for this metric
+    ensemble[metric] =
+      available.reduce(
+        (sum, item) => sum + (item.prediction[metric] ?? 0) * item.rSquared,
+        0
+      ) / (totalWeight || 1);
+  }
+  return ensemble;
+}
 
 function App() {
   // Dataset state
@@ -170,31 +209,33 @@ function App() {
     if (!dataset) return;
     let model: ModelResult;
     const useFeatureEngineering = dataObj?.useFeatureEngineering ?? true;
+    // Use a flat array for all models
+    const allData = [...dataset.trainData, ...dataset.testData];
     switch (modelType) {
       case 'SVM':
-        model = await trainSVM(dataset);
+        model = await trainSVM(allData);
         break;
       case 'ANN': {
         setIsTuning(true);
         // Find best hyperparameters using grid search
         const bestParams = await findBestAnnHyperparameters(
-          [...dataset.trainData, ...dataset.testData],
+          allData,
           useFeatureEngineering
         );
         setIsTuning(false);
         // Train final model with best hyperparameters
         model = await trainANN(
-          [...dataset.trainData, ...dataset.testData],
+          allData,
           bestParams,
           useFeatureEngineering
         );
         break;
       }
       case 'ELM':
-        model = await trainELM(dataset);
+        model = await trainELM(allData);
         break;
       case 'GA':
-        model = await trainGA(dataset);
+        model = await trainGA(allData);
         break;
       default:
         return;
