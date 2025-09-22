@@ -225,7 +225,7 @@ export interface ANNConfig {
 
 export async function trainANN(
   data: EDMTrainingData[],
-  config: ANNConfig = { learningRate: 0.01, epochs: 50, hiddenUnits: 12, dropoutRate: 0.2 },
+  config: ANNConfig = { learningRate: 0.01, epochs: 50, hiddenUnits: 12 },
   useFeatureEngineering: boolean = true,
   kFolds: number = 5
 ): Promise<any> {
@@ -280,9 +280,8 @@ export async function trainANN(
       kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
       biasRegularizer: tf.regularizers.l2({ l2: 0.01 })
     }));
-    if (config.dropoutRate && config.dropoutRate > 0) {
-      model.add(tf.layers.dropout({ rate: config.dropoutRate }));
-    }
+    // Always add dropout with 0.5 rate after hidden layer
+    model.add(tf.layers.dropout({ rate: 0.5 }));
     model.add(tf.layers.dense({
       units: 4,
       activation: 'linear',
@@ -361,9 +360,8 @@ export async function trainANN(
     kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
     biasRegularizer: tf.regularizers.l2({ l2: 0.01 })
   }));
-  if (config.dropoutRate && config.dropoutRate > 0) {
-    finalModel.add(tf.layers.dropout({ rate: config.dropoutRate }));
-  }
+  // Always add dropout with 0.5 rate after hidden layer
+  finalModel.add(tf.layers.dropout({ rate: 0.5 }));
   finalModel.add(tf.layers.dense({
     units: 4,
     activation: 'linear',

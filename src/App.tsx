@@ -505,6 +505,7 @@ function App() {
               analyticsData={analyticsData}
               processMetrics={processMetrics}
               cuttingMethod={cuttingMethod}
+              ensemblePrediction={getEnsemblePrediction(predictions, trainedModels)}
             />
           )}
 

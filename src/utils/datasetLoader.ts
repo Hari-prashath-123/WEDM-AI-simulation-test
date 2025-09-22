@@ -282,15 +282,13 @@ function generateSyntheticData(): EDMTrainingData[] {
 }
 
 /**
- * Augments EDMTrainingData by creating multiplier times more samples with ±5% random noise on each numerical feature.
+ * Augments EDMTrainingData by adding random noise to each feature.
+ * Returns a new array of the same size, each with proportional noise.
  * @param data Array of EDMTrainingData
- * @param multiplier Number of times to increase the dataset size
- * @returns Augmented EDMTrainingData array
+ * @param noiseLevel Proportional noise level (default 0.01 = ±1%)
+ * @returns Augmented EDMTrainingData array (same size as input)
  */
-export function augmentData(data: EDMTrainingData[], multiplier: number): EDMTrainingData[] {
-  if (multiplier <= 1) return [...data];
-  const augmented: EDMTrainingData[] = [];
-  // List of numerical fields in EDMTrainingData
+export function augmentData(data: EDMTrainingData[], noiseLevel: number = 0.01): EDMTrainingData[] {
   const numericFields: (keyof EDMTrainingData)[] = [
     'voltage',
     'current',
@@ -303,31 +301,28 @@ export function augmentData(data: EDMTrainingData[], multiplier: number): EDMTra
     'dimensionalAccuracy',
     'processingTime'
   ];
-  for (let i = 0; i < multiplier; i++) {
-    for (const sample of data) {
-      const noisySample: EDMTrainingData = { ...sample };
-      for (const key of numericFields) {
-        const value = noisySample[key];
-        if (typeof value === 'number') {
-          const noise = (Math.random() * 0.1 - 0.05) * value;
-          noisySample[key] = value + noise;
-        }
+  return data.map(sample => {
+    const noisySample: EDMTrainingData = { ...sample };
+    for (const key of numericFields) {
+      const value = noisySample[key];
+      if (typeof value === 'number') {
+        const noise = (Math.random() * 2 - 1) * noiseLevel * value;
+        noisySample[key] = value + noise;
       }
-      augmented.push(noisySample);
     }
-  }
-  return augmented;
+    return noisySample;
+  });
 }
 
 /**
- * Generates new EDMTrainingData points by interpolating between two random points from the training set.
- * For each new point, selects two random points and creates a weighted average.
+ * Generates new EDMTrainingData points by interpolating between random pairs to increase dataset size by a factor.
+ * Returns the original data plus new synthetic points.
  * @param data Array of EDMTrainingData
- * @param numNewPoints Number of new points to generate
- * @returns Array of new EDMTrainingData points
+ * @param factor Multiplication factor (e.g., 2 = double size)
+ * @returns Augmented EDMTrainingData array (original + synthetic)
  */
-export function generateAugmentedData(data: EDMTrainingData[], numNewPoints: number): EDMTrainingData[] {
-  if (data.length < 2 || numNewPoints < 1) return [];
+export function generateAugmentedData(data: EDMTrainingData[], factor: number = 2): EDMTrainingData[] {
+  if (data.length < 2 || factor <= 1) return [...data];
   const numericFields: (keyof EDMTrainingData)[] = [
     'voltage',
     'current',
@@ -340,6 +335,7 @@ export function generateAugmentedData(data: EDMTrainingData[], numNewPoints: num
     'dimensionalAccuracy',
     'processingTime'
   ];
+  const numNewPoints = Math.round(data.length * (factor - 1));
   const augmented: EDMTrainingData[] = [];
   for (let i = 0; i < numNewPoints; i++) {
     // Pick two random indices
@@ -357,5 +353,5 @@ export function generateAugmentedData(data: EDMTrainingData[], numNewPoints: num
     }
     augmented.push(newPoint);
   }
-  return augmented;
+  return [...data, ...augmented];
 }

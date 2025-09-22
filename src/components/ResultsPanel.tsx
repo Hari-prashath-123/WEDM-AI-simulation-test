@@ -29,9 +29,11 @@ const FeatureImportanceChart: React.FC<FeatureImportanceChartProps> = ({ feature
   );
 };
 import React from 'react';
+import type { EDMTrainingData } from '../utils/datasetLoader';
+import type { ModelResult } from '../utils/aiModels';
 import { TrendingUp, Target, Layers, Clock, BarChart3, Activity, Thermometer, Zap } from 'lucide-react';
 
-interface AnalyticsDataPoint {
+type AnalyticsDataPoint = {
   timestamp: number;
   progress: number;
   materialRemovalRate: number;
@@ -39,29 +41,32 @@ interface AnalyticsDataPoint {
   surfaceQuality: number;
   temperature: number;
   efficiency: number;
-}
+};
 
-interface Prediction {
+type Prediction = {
   materialRemovalRate: number;
   surfaceRoughness: number;
   dimensionalAccuracy: number;
   processingTime: number;
-}
+};
 
-interface ResultsPanelProps {
+
+type ResultsPanelProps = {
   predictions: Record<string, Prediction>;
   currentParameters: any;
   analyticsData: AnalyticsDataPoint[];
   processMetrics: any;
   cuttingMethod: string;
-}
+  ensemblePrediction?: Prediction | null;
+};
 
 const ResultsPanel: React.FC<ResultsPanelProps> = ({ 
   predictions, 
   currentParameters, 
   analyticsData, 
   processMetrics,
-  cuttingMethod
+  cuttingMethod,
+  ensemblePrediction
 }) => {
   // Method-specific metric labels
   const getMethodSpecificLabels = () => {
@@ -138,12 +143,10 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
 
   const getBestModel = (metricKey: keyof Prediction) => {
     if (Object.keys(predictions).length === 0) return null;
-    
     let bestModel = '';
     let bestValue = metricKey === 'surfaceRoughness' ? Infinity : -Infinity;
-    
     Object.entries(predictions).forEach(([model, pred]) => {
-      const value = pred[metricKey];
+      const value = (pred as Prediction)[metricKey];
       if (metricKey === 'surfaceRoughness') {
         if (value < bestValue) {
           bestValue = value;
@@ -156,7 +159,6 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
         }
       }
     });
-    
     return bestModel;
   };
 
@@ -169,17 +171,14 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
     height?: number;
   }> = ({ data, label, color, unit, height = 60 }) => {
     if (data.length === 0) return null;
-    
     const max = Math.max(...data);
     const min = Math.min(...data);
     const range = max - min || 1;
-    
-    const points = data.map((value, index) => {
+    const points = data.map((value: number, index: number) => {
       const x = (index / (data.length - 1)) * 100;
       const y = height - ((value - min) / range) * height;
       return `${x},${y}`;
     }).join(' ');
-    
     return (
       <div className="bg-gray-700 p-3 rounded-lg">
         <div className="flex justify-between items-center mb-2">
@@ -274,25 +273,25 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
         {analyticsData.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
             <LineChart
-              data={analyticsData.map(d => d.materialRemovalRate)}
+              data={analyticsData.map((d: AnalyticsDataPoint) => d.materialRemovalRate)}
               label="Material Removal Rate"
               color="#10b981"
               unit="mm³/min"
             />
             <LineChart
-              data={analyticsData.map(d => d.powerConsumption)}
+              data={analyticsData.map((d: AnalyticsDataPoint) => d.powerConsumption)}
               label="Power Consumption"
               color="#f59e0b"
               unit="kW"
             />
             <LineChart
-              data={analyticsData.map(d => d.surfaceQuality)}
+              data={analyticsData.map((d: AnalyticsDataPoint) => d.surfaceQuality)}
               label="Surface Quality"
               color="#3b82f6"
               unit="Ra"
             />
             <LineChart
-              data={analyticsData.map(d => d.efficiency)}
+              data={analyticsData.map((d: AnalyticsDataPoint) => d.efficiency)}
               label="Process Efficiency"
               color="#8b5cf6"
               unit="%"
@@ -308,7 +307,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
               <span className="text-gray-400">{cuttingMethod === 'water' ? 'Avg. Pressure:' : 'Avg. Temperature:'}</span>
               <div className="text-orange-400 font-mono">
                 {analyticsData.length > 0 
-                  ? (analyticsData.reduce((sum, d) => sum + d.temperature, 0) / analyticsData.length).toFixed(1)
+                  ? (analyticsData.reduce((sum: number, d: AnalyticsDataPoint) => sum + d.temperature, 0) / analyticsData.length).toFixed(1)
                   : '0.0'
                 }{cuttingMethod === 'water' ? ' PSI' : '°C'}
               </div>
@@ -317,7 +316,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
               <span className="text-gray-400">Peak {methodLabels.powerLabel.split(' ')[0]}:</span>
               <div className="text-yellow-400 font-mono">
                 {analyticsData.length > 0 
-                  ? Math.max(...analyticsData.map(d => d.powerConsumption)).toFixed(1)
+                  ? Math.max(...analyticsData.map((d: AnalyticsDataPoint) => d.powerConsumption)).toFixed(1)
                   : processMetrics.powerConsumption.toFixed(1)
                 } {methodLabels.powerLabel.match(/\(([^)]+)\)/)?.[1] || 'kW'}
               </div>
@@ -351,6 +350,21 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
         </div>
       ) : (
         <div className="space-y-4 sm:space-y-6">
+          {/* Ensemble Prediction Card */}
+          {ensemblePrediction && (
+            <div className="bg-gray-900 border-2 border-blue-500 p-4 rounded-lg shadow-lg mb-4">
+              <h4 className="text-lg font-bold text-blue-400 mb-2">Ensemble Prediction</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {metrics.map(({ key, label, unit }) => (
+                  <div key={key} className="flex flex-col items-center">
+                    <span className="text-xs text-gray-400">{label}</span>
+                    <span className="font-mono text-lg text-blue-300">{ensemblePrediction[key].toFixed(2)} {unit}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {metrics.map(({ key, label, unit, icon: Icon, color, bgColor }) => (
             <div key={key} className={`p-3 sm:p-4 rounded-lg ${bgColor} border border-gray-600`}>
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 gap-2">
