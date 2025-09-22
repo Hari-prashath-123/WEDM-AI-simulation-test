@@ -1,3 +1,19 @@
+/**
+ * Expands each feature array with engineered features:
+ * 1. Interaction term: voltage * current
+ * 2. Power density: voltage / pulseOnTime
+ * 3. Duty cycle: pulseOnTime / (pulseOnTime + pulseOffTime)
+ * Assumes input order: [voltage, current, pulseOnTime, pulseOffTime, wireSpeed, dielectricFlow]
+ */
+export function engineerFeatures(inputs: number[][]): number[][] {
+  return inputs.map(sample => {
+    const [voltage, current, pulseOnTime, pulseOffTime] = sample;
+    const interaction = voltage * current;
+    const powerDensity = pulseOnTime !== 0 ? voltage / pulseOnTime : 0;
+    const dutyCycle = (pulseOnTime + pulseOffTime) !== 0 ? pulseOnTime / (pulseOnTime + pulseOffTime) : 0;
+    return [...sample, interaction, powerDensity, dutyCycle];
+  });
+}
 // Real AI model implementations for Wire EDM simulation
 import * as tf from '@tensorflow/tfjs';
 import { loadEDMDataset, EDMTrainingData } from './datasetLoader';
@@ -153,13 +169,15 @@ export interface ANNConfig {
 
 export async function trainANN(
   data: { trainData: EDMTrainingData[]; testData: EDMTrainingData[] },
-  config: ANNConfig = { learningRate: 0.01, epochs: 50, hiddenUnits: 12 }
+  config: ANNConfig = { learningRate: 0.01, epochs: 50, hiddenUnits: 12 },
+  useFeatureEngineering: boolean = true
 ): Promise<ModelResult> {
   const startTime = Date.now();
 
   const train = data.trainData;
   const test = data.testData;
   console.log(`Training ANN (TF.js) with ${train.length} training samples and ${test.length} test samples`);
+
 
   // Prepare training features and targets
   const trainFeatures = train.map(d => [
@@ -170,14 +188,6 @@ export async function trainANN(
     d.wireSpeed / 500,
     d.dielectricFlow / 20
   ]);
-  const trainTargets = train.map(d => [
-    d.materialRemovalRate / 10,
-    d.surfaceRoughness / 5,
-    d.dimensionalAccuracy / 100,
-    d.processingTime / 100
-  ]);
-
-  // Prepare test features and targets
   const testFeatures = test.map(d => [
     d.voltage / 300,
     d.current / 50,
@@ -185,6 +195,15 @@ export async function trainANN(
     d.pulseOffTime / 200,
     d.wireSpeed / 500,
     d.dielectricFlow / 20
+  ]);
+  // Conditionally apply feature engineering
+  const engineeredTrainFeatures = useFeatureEngineering ? engineerFeatures(trainFeatures) : trainFeatures;
+  const engineeredTestFeatures = useFeatureEngineering ? engineerFeatures(testFeatures) : testFeatures;
+  const trainTargets = train.map(d => [
+    d.materialRemovalRate / 10,
+    d.surfaceRoughness / 5,
+    d.dimensionalAccuracy / 100,
+    d.processingTime / 100
   ]);
   const testTargets = test.map(d => [
     d.materialRemovalRate / 10,
@@ -194,14 +213,14 @@ export async function trainANN(
   ]);
 
   // Convert all to tensors
-  const xs = tf.tensor2d(trainFeatures);
+  const xs = tf.tensor2d(engineeredTrainFeatures);
   const ys = tf.tensor2d(trainTargets);
-  const xsTest = tf.tensor2d(testFeatures);
+  const xsTest = tf.tensor2d(engineeredTestFeatures);
   const ysTest = tf.tensor2d(testTargets);
 
   // Build model
   const model = tf.sequential();
-  model.add(tf.layers.dense({ inputShape: [6], units: config.hiddenUnits, activation: 'relu' }));
+  model.add(tf.layers.dense({ inputShape: [useFeatureEngineering ? 9 : 6], units: config.hiddenUnits, activation: 'relu' }));
   model.add(tf.layers.dense({ units: 4, activation: 'linear' }));
 
   model.compile({ optimizer: tf.train.adam(config.learningRate), loss: 'meanSquaredError' });
@@ -221,8 +240,6 @@ export async function trainANN(
     }
   });
 
-
-
   // Evaluate model: calculate RMSE and R-squared on test data
   const predsTestTensor = model.predict(xsTest) as tf.Tensor;
   const predsTestArr = await predsTestTensor.array() as number[][];
@@ -230,7 +247,6 @@ export async function trainANN(
 
   // Calculate RMSE
   let totalError = 0;
-  let totalSum = 0;
   let mean = 0;
   let n = 0;
   // Flatten testTargetsArr for mean calculation
@@ -264,8 +280,10 @@ export async function trainANN(
       (params.speed || 3000) / 6000,
       (params.surfaceRoughness || 1.3) / 5
     ];
-    // Create a 2D tensor of shape [1, 6]
-    const inputTensor = tf.tensor2d([input], [1, 6]);
+    // Apply feature engineering to the input
+    const engineeredInput = engineerFeatures([input])[0];
+    // Create a 2D tensor of shape [1, 9]
+    const inputTensor = tf.tensor2d([engineeredInput], [1, 9]);
     // Predict using the trained model
     const outputTensor = model.predict(inputTensor) as tf.Tensor;
     // Extract data from the output tensor

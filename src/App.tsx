@@ -1,3 +1,4 @@
+import { trainSVM, trainANN, trainELM, trainGA, ModelResult } from './utils/aiModels';
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Settings, Zap, Brain, BarChart3 } from 'lucide-react';
 import ParameterPanel from './components/ParameterPanel';
@@ -5,15 +6,9 @@ import CuttingSimulation from './components/CuttingSimulation';
 import AIModelPanel from './components/AIModelPanel';
 import ResultsPanel from './components/ResultsPanel';
 import CuttingMethodSelector from './components/CuttingMethodSelector';
-import { trainSVM, trainANN, trainELM, trainGA, ModelResult } from './utils/aiModels';
-import { loadEDMDataset, EDMTrainingData } from './utils/datasetLoader';
-  // Dataset state
-  const [dataset, setDataset] = useState<{ trainData: EDMTrainingData[]; testData: EDMTrainingData[] } | null>(null);
 
-  // Load dataset on mount
-  useEffect(() => {
-    loadEDMDataset().then((data) => setDataset(data));
-  }, []);
+import { loadEDMDataset, EDMTrainingData } from './utils/datasetLoader';
+
 
 interface EDMParameters {
   material: string;
@@ -30,6 +25,13 @@ interface EDMParameters {
 }
 
 function App() {
+  // Dataset state
+  const [dataset, setDataset] = useState<{ trainData: EDMTrainingData[]; testData: EDMTrainingData[] } | null>(null);
+
+  // Load dataset on mount
+  useEffect(() => {
+    loadEDMDataset().then((data) => setDataset(data));
+  }, []);
   const [parameters, setParameters] = useState<EDMParameters>({
     material: 'Mild Steel',
     grade: 'S355JR',
@@ -102,15 +104,18 @@ function App() {
     setIsSimulationRunning(false);
   };
 
-  const handleTrainModel = async (modelType: string) => {
+  // Accepts (modelType, dataObj) from AIModelPanel
+  const handleTrainModel = async (modelType: string, dataObj?: any) => {
     if (!dataset) return;
     let model: ModelResult;
+    // Extract feature engineering flag if present
+    const useFeatureEngineering = dataObj?.useFeatureEngineering ?? true;
     switch (modelType) {
       case 'SVM':
         model = await trainSVM(dataset);
         break;
       case 'ANN':
-        model = await trainANN(dataset);
+        model = await trainANN(dataset, dataObj, useFeatureEngineering);
         break;
       case 'ELM':
         model = await trainELM(dataset);

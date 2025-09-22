@@ -26,6 +26,7 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
   const [datasetError, setDatasetError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [useRealDataset, setUseRealDataset] = useState(true);
+  const [useFeatureEngineering, setUseFeatureEngineering] = useState(true);
 
   const models = [
     { id: 'SVM', name: 'Support Vector Machine', icon: Target, color: 'text-blue-400' },
@@ -108,7 +109,11 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
           setIsTraining(false);
           // Use the selected data source for training
           const useRealData = useRealDataset && !useUploadedData;
-          let dataObj: any = { useRealData, uploadedData: useUploadedData ? uploadedDataset?.preview : null };
+          let dataObj: any = {
+            useRealData,
+            uploadedData: useUploadedData ? uploadedDataset?.preview : null,
+            useFeatureEngineering
+          };
           if (selectedModel === 'ANN') {
             dataObj = {
               ...dataObj,
@@ -174,8 +179,8 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
         AI Model Training
       </h3>
 
-      {/* Dataset Upload Section */}
-      <div className="mb-6 p-4 bg-gray-700 rounded-lg">
+  {/* Dataset Upload Section */}
+  <div className="mb-6 p-4 bg-gray-700 rounded-lg">
         <h4 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <Database className="w-5 h-5 text-blue-400" />
           Training Dataset
@@ -208,32 +213,46 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
             />
           </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="useRealDataset"
-              checked={useRealDataset}
-              onChange={(e) => setUseRealDataset(e.target.checked)}
-              disabled={useUploadedData}
-              className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
-            />
-            <label htmlFor="useRealDataset" className="text-sm text-gray-300">
-              Use built-in laser cutting dataset (78 samples)
-            </label>
-          </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="useUploadedData"
-              checked={useUploadedData}
-              onChange={(e) => setUseUploadedData(e.target.checked)}
-              disabled={!uploadedDataset}
-              className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
-            />
-            <label htmlFor="useUploadedData" className="text-sm text-gray-300">
-              Use uploaded dataset for training (overrides built-in dataset)
-            </label>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="useRealDataset"
+                checked={useRealDataset}
+                onChange={(e) => setUseRealDataset(e.target.checked)}
+                disabled={useUploadedData}
+                className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+              />
+              <label htmlFor="useRealDataset" className="text-sm text-gray-300">
+                Use built-in laser cutting dataset (78 samples)
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="useUploadedData"
+                checked={useUploadedData}
+                onChange={(e) => setUseUploadedData(e.target.checked)}
+                disabled={!uploadedDataset}
+                className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+              />
+              <label htmlFor="useUploadedData" className="text-sm text-gray-300">
+                Use uploaded dataset for training (overrides built-in dataset)
+              </label>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              <input
+                type="checkbox"
+                id="useFeatureEngineering"
+                checked={useFeatureEngineering}
+                onChange={e => setUseFeatureEngineering(e.target.checked)}
+                className="w-4 h-4 text-green-600 bg-gray-700 border-gray-600 rounded focus:ring-green-500"
+              />
+              <label htmlFor="useFeatureEngineering" className="text-sm text-green-300">
+                Enable feature engineering (add interaction, power density, duty cycle)
+              </label>
+            </div>
           </div>
 
           {datasetError && (

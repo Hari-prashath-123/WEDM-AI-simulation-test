@@ -122,13 +122,34 @@ export async function loadEDMDataset(): Promise<{ trainData: EDMTrainingData[]; 
 function generateSyntheticData(): EDMTrainingData[] {
   const data: EDMTrainingData[] = [];
   for (let i = 0; i < 100; i++) {
-    const voltage = 20 + Math.random() * 280;
-    const current = 1 + Math.random() * 49;
-    const pulseOnTime = 0.5 + Math.random() * 99.5;
-    const pulseOffTime = 1 + Math.random() * 199;
-    const wireSpeed = 10 + Math.random() * 490;
-    const dielectricFlow = 0.5 + Math.random() * 19.5;
-    
+    // Base parameters
+    const voltage = 20 + Math.random() * 280; // 20-300V
+    const current = 1 + Math.random() * 49;   // 1-50A
+    const pulseOnTime = 0.5 + Math.random() * 99.5; // 0.5-100us
+    const pulseOffTime = 1 + Math.random() * 199;   // 1-200us
+    const wireSpeed = 10 + Math.random() * 490;     // 10-500 mm/min
+    const dielectricFlow = 0.5 + Math.random() * 19.5; // 0.5-20 L/min
+
+    // Material removal rate: strong dependence on voltage, current, pulseOnTime
+    let mrr = 0.0005 * voltage * current * (pulseOnTime / (pulseOnTime + pulseOffTime));
+    mrr += mrr * (Math.random() * 0.15 - 0.075); // ±7.5% noise
+    mrr = Math.max(0.05, mrr);
+
+    // Surface roughness: increases with pulseOnTime, decreases with voltage
+    let surfaceRoughness = 1.5 + 0.03 * pulseOnTime - 0.01 * voltage;
+    surfaceRoughness += surfaceRoughness * (Math.random() * 0.2 - 0.1); // ±10% noise
+    surfaceRoughness = Math.max(0.1, surfaceRoughness);
+
+    // Dimensional accuracy: better (lower) with moderate current and voltage
+    let dimensionalAccuracy = 10 - 0.08 * current - 0.04 * voltage + 0.02 * Math.abs(current - 25);
+    dimensionalAccuracy += dimensionalAccuracy * (Math.random() * 0.15 - 0.075); // ±7.5% noise
+    dimensionalAccuracy = Math.max(1, dimensionalAccuracy);
+
+    // Processing time: inversely related to MRR, with some dependence on wireSpeed
+    let processingTime = 1000 / (mrr * wireSpeed / 100);
+    processingTime += processingTime * (Math.random() * 0.15 - 0.075); // ±7.5% noise
+    processingTime = Math.max(1, processingTime);
+
     data.push({
       voltage,
       current,
@@ -136,10 +157,10 @@ function generateSyntheticData(): EDMTrainingData[] {
       pulseOffTime,
       wireSpeed,
       dielectricFlow,
-      materialRemovalRate: (voltage * current * pulseOnTime) / 10000,
-      surfaceRoughness: Math.max(0.1, 5 - (voltage / 100) + (pulseOnTime / 20)),
-      dimensionalAccuracy: Math.max(1, 10 - (current / 5) - (voltage / 50)),
-      processingTime: Math.max(1, 60 - (current * 0.5) - (voltage * 0.1))
+      materialRemovalRate: mrr,
+      surfaceRoughness,
+      dimensionalAccuracy,
+      processingTime
     });
   }
   return data;
