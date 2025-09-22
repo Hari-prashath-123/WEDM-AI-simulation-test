@@ -1,3 +1,16 @@
+// Shuffle and split dataset into train and test sets
+export function splitData<T>(dataset: T[]): { trainData: T[]; testData: T[] } {
+  // Shuffle using Fisher-Yates algorithm
+  const shuffled = [...dataset];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  const trainSize = Math.floor(shuffled.length * 0.8);
+  const trainData = shuffled.slice(0, trainSize);
+  const testData = shuffled.slice(trainSize);
+  return { trainData, testData };
+}
 // Dataset loader for laser cutting parameters
 export interface LaserCuttingData {
   material: string;
@@ -80,7 +93,7 @@ export function parseCSVData(csvText: string): LaserCuttingData[] {
 }
 
 // Load and convert the dataset
-export async function loadEDMDataset(): Promise<EDMTrainingData[]> {
+export async function loadEDMDataset(): Promise<{ trainData: EDMTrainingData[]; testData: EDMTrainingData[] }> {
   try {
     // Try to load the CSV file from the assets directory
     const response = await fetch('/src/assets/laser_cutting_parameters.csv');
@@ -95,11 +108,13 @@ export async function loadEDMDataset(): Promise<EDMTrainingData[]> {
     }
     
     console.log(`Loaded ${laserData.length} laser cutting parameter records`);
-    return laserData.map(convertLaserToEDM);
+    const edmData = laserData.map(convertLaserToEDM);
+    return splitData(edmData);
   } catch (error) {
     console.warn('Error loading CSV dataset, using synthetic data:', error);
     // Fallback to generated data
-    return generateSyntheticData();
+    const edmData = generateSyntheticData();
+    return splitData(edmData);
   }
 }
 

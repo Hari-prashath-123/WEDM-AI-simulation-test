@@ -3,7 +3,7 @@ import * as tf from '@tensorflow/tfjs';
 import { loadEDMDataset, EDMTrainingData } from './datasetLoader';
 
 export interface ModelResult {
-  accuracy: number;
+  rSquared: number;
   trainingTime: number;
   samples: number;
   rmse: number;
@@ -20,69 +20,83 @@ export interface ModelResult {
 // ...existing code...
 
 // Support Vector Machine implementation
-export async function trainSVM(useRealData: boolean = true): Promise<ModelResult> {
+export async function trainSVM(
+  data: { trainData: EDMTrainingData[]; testData: EDMTrainingData[] }
+): Promise<ModelResult> {
   const startTime = Date.now();
-  
-  const data = useRealData ? await loadEDMDataset() : generateSyntheticData();
-  console.log(`Training SVM with ${data.length} samples`);
-  
-  // Prepare training data
-  const features = data.map(d => [
-    d.voltage / 300,           // Normalize voltage
-    d.current / 50,            // Normalize current
-    d.pulseOnTime / 100,       // Normalize pulse on time
-    d.pulseOffTime / 200,      // Normalize pulse off time
-    d.wireSpeed / 500,         // Normalize wire speed
-    d.dielectricFlow / 20      // Normalize dielectric flow
-  ]);
+  const train = data.trainData;
+  const test = data.testData;
+  console.log(`Training SVM with ${train.length} training samples and ${test.length} test samples`);
 
-  const targets = data.map(d => [
+  // Prepare features and targets for train and test
+  const trainFeatures = train.map(d => [
+    d.voltage / 300,
+    d.current / 50,
+    d.pulseOnTime / 100,
+    d.pulseOffTime / 200,
+    d.wireSpeed / 500,
+    d.dielectricFlow / 20
+  ]);
+  const trainTargets = train.map(d => [
+    d.materialRemovalRate,
+    d.surfaceRoughness,
+    d.dimensionalAccuracy,
+    d.processingTime
+  ]);
+  const testFeatures = test.map(d => [
+    d.voltage / 300,
+    d.current / 50,
+    d.pulseOnTime / 100,
+    d.pulseOffTime / 200,
+    d.wireSpeed / 500,
+    d.dielectricFlow / 20
+  ]);
+  const testTargets = test.map(d => [
     d.materialRemovalRate,
     d.surfaceRoughness,
     d.dimensionalAccuracy,
     d.processingTime
   ]);
 
-  // Simplified SVM using Sequential Minimal Optimization (SMO) approach
-  const C = 1.0; // Regularization parameter
-  const tolerance = 0.001;
-  const maxPasses = 5;
-  
   // Initialize weights using least squares approximation
   const weights: number[][] = [];
-  
   for (let output = 0; output < 4; output++) {
-    const y = targets.map(t => t[output]);
-    const w = solveLeastSquares(features, y);
+    const y = trainTargets.map(t => t[output]);
+    const w = solveLeastSquares(trainFeatures, y);
     weights.push(w);
   }
 
-  // Calculate accuracy using cross-validation
+  // Evaluate on test data
   let totalError = 0;
-  for (let i = 0; i < data.length; i++) {
-    const predicted = predictSVM(features[i], weights);
-    const actual = targets[i];
-    
+  let n = 0;
+  let flatTargets = testTargets.flat();
+  let mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
+  let residualSum = 0;
+  let totalSumSquares = 0;
+  for (let i = 0; i < testFeatures.length; i++) {
+    const predicted = predictSVM(testFeatures[i], weights);
+    const actual = testTargets[i];
     for (let j = 0; j < 4; j++) {
-      totalError += Math.pow(predicted[j] - actual[j], 2);
+      const diff = predicted[j] - actual[j];
+      totalError += diff * diff;
+      residualSum += diff * diff;
+      totalSumSquares += (actual[j] - mean) * (actual[j] - mean);
+      n++;
     }
   }
-  
-  const rmse = Math.sqrt(totalError / (data.length * 4));
-  const accuracy = Math.max(0, 1 - rmse / 10); // Normalize accuracy
+  const rmse = Math.sqrt(totalError / n);
+  const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
 
   const predict = (params: any) => {
     const input = [
-      (params.laserPower || 3) / 6,      // Map laser power to voltage equivalent
-      (params.speed || 3000) / 6000,    // Map speed to current equivalent
-      (params.thickness || 4) / 10,     // Map thickness to pulse on time
-      (params.linearEnergy || 60) / 250, // Map linear energy to pulse off time
-      (params.speed || 3000) / 6000,    // Wire speed equivalent
-      (params.surfaceRoughness || 1.3) / 5 // Dielectric flow equivalent
+      (params.laserPower || 3) / 6,
+      (params.speed || 3000) / 6000,
+      (params.thickness || 4) / 10,
+      (params.linearEnergy || 60) / 250,
+      (params.speed || 3000) / 6000,
+      (params.surfaceRoughness || 1.3) / 5
     ];
-    
     const result = predictSVM(input, weights);
-    
     return {
       materialRemovalRate: Math.max(0.1, result[0] * 2),
       surfaceRoughness: Math.max(0.1, Math.min(5, result[1])),
@@ -92,9 +106,9 @@ export async function trainSVM(useRealData: boolean = true): Promise<ModelResult
   };
 
   return {
-    accuracy,
+    rSquared,
     trainingTime: Date.now() - startTime,
-    samples: data.length,
+    samples: train.length,
     rmse,
     weights: weights.flat(),
     predict
@@ -136,16 +150,19 @@ export interface ANNConfig {
   hiddenUnits: number;
 }
 
+
 export async function trainANN(
-  useRealData: boolean = true,
+  data: { trainData: EDMTrainingData[]; testData: EDMTrainingData[] },
   config: ANNConfig = { learningRate: 0.01, epochs: 50, hiddenUnits: 12 }
 ): Promise<ModelResult> {
   const startTime = Date.now();
-  const data = useRealData ? await loadEDMDataset() : generateSyntheticData();
-  console.log(`Training ANN (TF.js) with ${data.length} samples`);
 
-  // Prepare training data
-  const inputs = data.map(d => [
+  const train = data.trainData;
+  const test = data.testData;
+  console.log(`Training ANN (TF.js) with ${train.length} training samples and ${test.length} test samples`);
+
+  // Prepare training features and targets
+  const trainFeatures = train.map(d => [
     d.voltage / 300,
     d.current / 50,
     d.pulseOnTime / 100,
@@ -153,16 +170,34 @@ export async function trainANN(
     d.wireSpeed / 500,
     d.dielectricFlow / 20
   ]);
-  const targets = data.map(d => [
+  const trainTargets = train.map(d => [
     d.materialRemovalRate / 10,
     d.surfaceRoughness / 5,
     d.dimensionalAccuracy / 100,
     d.processingTime / 100
   ]);
 
-  // Convert to tensors
-  const xs = tf.tensor2d(inputs);
-  const ys = tf.tensor2d(targets);
+  // Prepare test features and targets
+  const testFeatures = test.map(d => [
+    d.voltage / 300,
+    d.current / 50,
+    d.pulseOnTime / 100,
+    d.pulseOffTime / 200,
+    d.wireSpeed / 500,
+    d.dielectricFlow / 20
+  ]);
+  const testTargets = test.map(d => [
+    d.materialRemovalRate / 10,
+    d.surfaceRoughness / 5,
+    d.dimensionalAccuracy / 100,
+    d.processingTime / 100
+  ]);
+
+  // Convert all to tensors
+  const xs = tf.tensor2d(trainFeatures);
+  const ys = tf.tensor2d(trainTargets);
+  const xsTest = tf.tensor2d(testFeatures);
+  const ysTest = tf.tensor2d(testTargets);
 
   // Build model
   const model = tf.sequential();
@@ -176,26 +211,47 @@ export async function trainANN(
     epochs: config.epochs,
     batchSize: 8,
     verbose: 0,
+    validationData: [xsTest, ysTest],
     callbacks: {
       onEpochEnd: (epoch, logs) => {
         if (epoch % 10 === 0) {
-          console.log(`Epoch ${epoch}, Loss: ${logs?.loss}`);
+          console.log(`Epoch ${epoch}, Loss: ${logs?.loss}, Val Loss: ${logs?.val_loss}`);
         }
       }
     }
   });
 
-  // Evaluate model: calculate RMSE on training data
-  const predsTensor = model.predict(xs) as tf.Tensor;
-  const predsArr = await predsTensor.array() as number[][];
+
+
+  // Evaluate model: calculate RMSE and R-squared on test data
+  const predsTestTensor = model.predict(xsTest) as tf.Tensor;
+  const predsTestArr = await predsTestTensor.array() as number[][];
+  const testTargetsArr = await ysTest.array() as number[][];
+
+  // Calculate RMSE
   let totalError = 0;
-  for (let i = 0; i < predsArr.length; i++) {
+  let totalSum = 0;
+  let mean = 0;
+  let n = 0;
+  // Flatten testTargetsArr for mean calculation
+  const flatTargets = testTargetsArr.flat();
+  mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
+  // Calculate residual sum of squares and total sum of squares
+  let residualSum = 0;
+  let totalSumSquares = 0;
+  for (let i = 0; i < predsTestArr.length; i++) {
     for (let j = 0; j < 4; j++) {
-      totalError += Math.pow(predsArr[i][j] - targets[i][j], 2);
+      const pred = predsTestArr[i][j];
+      const actual = testTargetsArr[i][j];
+      const diff = pred - actual;
+      totalError += diff * diff;
+      residualSum += diff * diff;
+      totalSumSquares += (actual - mean) * (actual - mean);
+      n++;
     }
   }
-  const rmse = Math.sqrt(totalError / (inputs.length * 4));
-  const accuracy = Math.max(0, 1 - rmse);
+  const rmse = Math.sqrt(totalError / n);
+  const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
 
   // Prediction function
   const predict = (params: any) => {
@@ -223,9 +279,9 @@ export async function trainANN(
   };
 
   return {
-    accuracy,
+    rSquared,
     trainingTime: Date.now() - startTime,
-    samples: data.length,
+    samples: train.length,
     rmse,
     predict
   };
@@ -234,24 +290,25 @@ export async function trainANN(
 // ...removed old predictANN using Matrix and sigmoid...
 
 // Extreme Learning Machine implementation
-export async function trainELM(useRealData: boolean = true): Promise<ModelResult> {
+export async function trainELM(
+  data: { trainData: EDMTrainingData[]; testData: EDMTrainingData[] }
+): Promise<ModelResult> {
   const startTime = Date.now();
-  
-  const data = useRealData ? await loadEDMDataset() : generateSyntheticData();
-  console.log(`Training ELM with ${data.length} samples`);
-  
+  const train = data.trainData;
+  const test = data.testData;
+  console.log(`Training ELM with ${train.length} training samples and ${test.length} test samples`);
+
   const inputSize = 6;
   const hiddenSize = 20;
-  const outputSize = 4;
-  
+
   // Random input weights and biases (fixed during training)
   const inputWeights = Array(hiddenSize).fill(0).map(() => 
     Array(inputSize).fill(0).map(() => Math.random() * 2 - 1)
   );
   const biases = Array(hiddenSize).fill(0).map(() => Math.random() * 2 - 1);
-  
-  // Prepare training data
-  const inputs = data.map(d => [
+
+  // Prepare training and test data
+  const trainFeatures = train.map(d => [
     d.voltage / 300,
     d.current / 50,
     d.pulseOnTime / 100,
@@ -259,56 +316,71 @@ export async function trainELM(useRealData: boolean = true): Promise<ModelResult
     d.wireSpeed / 500,
     d.dielectricFlow / 20
   ]);
-
-  const targets = data.map(d => [
+  const trainTargets = train.map(d => [
+    d.materialRemovalRate / 10,
+    d.surfaceRoughness / 5,
+    d.dimensionalAccuracy / 100,
+    d.processingTime / 100
+  ]);
+  const testFeatures = test.map(d => [
+    d.voltage / 300,
+    d.current / 50,
+    d.pulseOnTime / 100,
+    d.pulseOffTime / 200,
+    d.wireSpeed / 500,
+    d.dielectricFlow / 20
+  ]);
+  const testTargets = test.map(d => [
     d.materialRemovalRate / 10,
     d.surfaceRoughness / 5,
     d.dimensionalAccuracy / 100,
     d.processingTime / 100
   ]);
 
-  // Calculate hidden layer output matrix H
+  // Calculate hidden layer output matrix H for training
   const H: number[][] = [];
-  for (let i = 0; i < inputs.length; i++) {
+  for (let i = 0; i < trainFeatures.length; i++) {
     const hiddenOutput: number[] = [];
     for (let j = 0; j < hiddenSize; j++) {
       let sum = biases[j];
       for (let k = 0; k < inputSize; k++) {
-        sum += inputs[i][k] * inputWeights[j][k];
+        sum += trainFeatures[i][k] * inputWeights[j][k];
       }
-  // TODO: Replace with tfjs or Math.sigmoid if needed
-  hiddenOutput.push(1 / (1 + Math.exp(-sum)));
+      hiddenOutput.push(1 / (1 + Math.exp(-sum)));
     }
     H.push(hiddenOutput);
   }
-  
+
   // Calculate output weights using Moore-Penrose pseudoinverse
-  // β = H† * T, where H† is the pseudoinverse of H
   const HT = transpose(H);
   const HTH = matrixMultiply(HT, H);
-  
-  // Add regularization for numerical stability
   for (let i = 0; i < HTH.length; i++) {
     HTH[i][i] += 0.001;
   }
-  
   const HTHInv = matrixInverse(HTH);
   const HTHInvHT = matrixMultiply(HTHInv, HT);
-  const outputWeights = matrixMultiply(HTHInvHT, targets);
+  const outputWeights = matrixMultiply(HTHInvHT, trainTargets);
 
-  // Calculate accuracy
+  // Evaluate on test data
   let totalError = 0;
-  for (let i = 0; i < inputs.length; i++) {
-    const predicted = predictELM(inputs[i], inputWeights, biases, outputWeights);
-    const actual = targets[i];
-    
+  let n = 0;
+  let flatTargets = testTargets.flat();
+  let mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
+  let residualSum = 0;
+  let totalSumSquares = 0;
+  for (let i = 0; i < testFeatures.length; i++) {
+    const predicted = predictELM(testFeatures[i], inputWeights, biases, outputWeights);
+    const actual = testTargets[i];
     for (let j = 0; j < 4; j++) {
-      totalError += Math.pow(predicted[j] - actual[j], 2);
+      const diff = predicted[j] - actual[j];
+      totalError += diff * diff;
+      residualSum += diff * diff;
+      totalSumSquares += (actual[j] - mean) * (actual[j] - mean);
+      n++;
     }
   }
-  
-  const rmse = Math.sqrt(totalError / (inputs.length * 4));
-  const accuracy = Math.max(0, 1 - rmse);
+  const rmse = Math.sqrt(totalError / n);
+  const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
 
   const predict = (params: any) => {
     const input = [
@@ -319,9 +391,7 @@ export async function trainELM(useRealData: boolean = true): Promise<ModelResult
       (params.speed || 3000) / 6000,
       (params.surfaceRoughness || 1.3) / 5
     ];
-    
     const result = predictELM(input, inputWeights, biases, outputWeights);
-    
     return {
       materialRemovalRate: Math.max(0.1, result[0] * 10),
       surfaceRoughness: Math.max(0.1, Math.min(5, result[1] * 5)),
@@ -331,9 +401,9 @@ export async function trainELM(useRealData: boolean = true): Promise<ModelResult
   };
 
   return {
-    accuracy,
+    rSquared,
     trainingTime: Date.now() - startTime,
-    samples: data.length,
+    samples: train.length,
     rmse,
     modelData: { inputWeights, biases, outputWeights },
     predict
@@ -366,20 +436,22 @@ function predictELM(input: number[], inputWeights: number[][], biases: number[],
 }
 
 // Genetic Algorithm implementation
-export async function trainGA(useRealData: boolean = true): Promise<ModelResult> {
+export async function trainGA(
+  data: { trainData: EDMTrainingData[]; testData: EDMTrainingData[] }
+): Promise<ModelResult> {
   const startTime = Date.now();
-  
-  const data = useRealData ? await loadEDMDataset() : generateSyntheticData();
-  console.log(`Training GA with ${data.length} samples`);
-  
+  const train = data.trainData;
+  const test = data.testData;
+  console.log(`Training GA with ${train.length} training samples and ${test.length} test samples`);
+
   const populationSize = 50;
   const generations = 100;
   const mutationRate = 0.1;
   const crossoverRate = 0.8;
-  const chromosomeLength = 6 * 4 + 4; // 6 inputs * 4 outputs + 4 biases
-  
-  // Prepare training data
-  const inputs = data.map(d => [
+  const chromosomeLength = 6 * 4 + 4;
+
+  // Prepare training and test data
+  const trainFeatures = train.map(d => [
     d.voltage / 300,
     d.current / 50,
     d.pulseOnTime / 100,
@@ -387,8 +459,21 @@ export async function trainGA(useRealData: boolean = true): Promise<ModelResult>
     d.wireSpeed / 500,
     d.dielectricFlow / 20
   ]);
-
-  const targets = data.map(d => [
+  const trainTargets = train.map(d => [
+    d.materialRemovalRate / 10,
+    d.surfaceRoughness / 5,
+    d.dimensionalAccuracy / 100,
+    d.processingTime / 100
+  ]);
+  const testFeatures = test.map(d => [
+    d.voltage / 300,
+    d.current / 50,
+    d.pulseOnTime / 100,
+    d.pulseOffTime / 200,
+    d.wireSpeed / 500,
+    d.dielectricFlow / 20
+  ]);
+  const testTargets = test.map(d => [
     d.materialRemovalRate / 10,
     d.surfaceRoughness / 5,
     d.dimensionalAccuracy / 100,
@@ -407,38 +492,30 @@ export async function trainGA(useRealData: boolean = true): Promise<ModelResult>
 
   // Evolution loop
   for (let gen = 0; gen < generations; gen++) {
-    // Evaluate fitness
-    const fitness = population.map(chromosome => evaluateFitness(chromosome, inputs, targets));
-    
+    // Evaluate fitness on training data
+    const fitness = population.map(chromosome => evaluateFitness(chromosome, trainFeatures, trainTargets));
     // Selection and reproduction
     const newPopulation: number[][] = [];
-    
     // Elitism - keep best 10%
     const sortedIndices = fitness.map((f, i) => ({ fitness: f, index: i }))
       .sort((a, b) => b.fitness - a.fitness);
-    
     const eliteCount = Math.floor(populationSize * 0.1);
     for (let i = 0; i < eliteCount; i++) {
       newPopulation.push([...population[sortedIndices[i].index]]);
     }
-    
     // Generate rest through crossover and mutation
     while (newPopulation.length < populationSize) {
       const parent1 = tournamentSelection(population, fitness);
       const parent2 = tournamentSelection(population, fitness);
-      
       let [child1, child2] = crossover(parent1, parent2, crossoverRate);
       child1 = mutate(child1, mutationRate);
       child2 = mutate(child2, mutationRate);
-      
       newPopulation.push(child1);
       if (newPopulation.length < populationSize) {
         newPopulation.push(child2);
       }
     }
-    
     population = newPopulation;
-    
     if (gen % 20 === 0) {
       const bestFitness = Math.max(...fitness);
       console.log(`Generation ${gen}, Best Fitness: ${bestFitness}`);
@@ -446,12 +523,30 @@ export async function trainGA(useRealData: boolean = true): Promise<ModelResult>
   }
 
   // Get best individual
-  const finalFitness = population.map(chromosome => evaluateFitness(chromosome, inputs, targets));
+  const finalFitness = population.map(chromosome => evaluateFitness(chromosome, trainFeatures, trainTargets));
   const bestIndex = finalFitness.indexOf(Math.max(...finalFitness));
   const bestChromosome = population[bestIndex];
-  
-  const accuracy = finalFitness[bestIndex];
-  const rmse = Math.sqrt(1 - accuracy);
+
+  // Evaluate on test data
+  let totalError = 0;
+  let n = 0;
+  let flatTargets = testTargets.flat();
+  let mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
+  let residualSum = 0;
+  let totalSumSquares = 0;
+  for (let i = 0; i < testFeatures.length; i++) {
+    const predicted = predictGA(testFeatures[i], bestChromosome);
+    const actual = testTargets[i];
+    for (let j = 0; j < 4; j++) {
+      const diff = predicted[j] - actual[j];
+      totalError += diff * diff;
+      residualSum += diff * diff;
+      totalSumSquares += (actual[j] - mean) * (actual[j] - mean);
+      n++;
+    }
+  }
+  const rmse = Math.sqrt(totalError / n);
+  const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
 
   const predict = (params: any) => {
     const input = [
@@ -462,9 +557,7 @@ export async function trainGA(useRealData: boolean = true): Promise<ModelResult>
       (params.speed || 3000) / 6000,
       (params.surfaceRoughness || 1.3) / 5
     ];
-    
     const result = predictGA(input, bestChromosome);
-    
     return {
       materialRemovalRate: Math.max(0.1, result[0] * 10),
       surfaceRoughness: Math.max(0.1, Math.min(5, result[1] * 5)),
@@ -474,9 +567,9 @@ export async function trainGA(useRealData: boolean = true): Promise<ModelResult>
   };
 
   return {
-    accuracy,
+    rSquared,
     trainingTime: Date.now() - startTime,
-    samples: data.length,
+    samples: train.length,
     rmse,
     weights: bestChromosome,
     predict

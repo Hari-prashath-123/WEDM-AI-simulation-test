@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Settings, Zap, Brain, BarChart3 } from 'lucide-react';
 import ParameterPanel from './components/ParameterPanel';
 import CuttingSimulation from './components/CuttingSimulation';
@@ -6,6 +6,14 @@ import AIModelPanel from './components/AIModelPanel';
 import ResultsPanel from './components/ResultsPanel';
 import CuttingMethodSelector from './components/CuttingMethodSelector';
 import { trainSVM, trainANN, trainELM, trainGA, ModelResult } from './utils/aiModels';
+import { loadEDMDataset, EDMTrainingData } from './utils/datasetLoader';
+  // Dataset state
+  const [dataset, setDataset] = useState<{ trainData: EDMTrainingData[]; testData: EDMTrainingData[] } | null>(null);
+
+  // Load dataset on mount
+  useEffect(() => {
+    loadEDMDataset().then((data) => setDataset(data));
+  }, []);
 
 interface EDMParameters {
   material: string;
@@ -94,30 +102,26 @@ function App() {
     setIsSimulationRunning(false);
   };
 
-  const handleTrainModel = async (modelType: string, data: any) => {
+  const handleTrainModel = async (modelType: string) => {
+    if (!dataset) return;
     let model: ModelResult;
-    
-    const { useRealData = true, uploadedData = null } = data;
-    
     switch (modelType) {
       case 'SVM':
-        model = await trainSVM(useRealData);
+        model = await trainSVM(dataset);
         break;
       case 'ANN':
-        model = await trainANN(useRealData);
+        model = await trainANN(dataset);
         break;
       case 'ELM':
-        model = await trainELM(useRealData);
+        model = await trainELM(dataset);
         break;
       case 'GA':
-        model = await trainGA(useRealData);
+        model = await trainGA(dataset);
         break;
       default:
         return;
     }
-
     setTrainedModels(prev => ({ ...prev, [modelType]: model }));
-    
     // Generate prediction for current parameters
     const prediction = model.predict(parameters);
     setPredictions(prev => ({ ...prev, [modelType]: prediction }));
@@ -352,13 +356,13 @@ function App() {
                         <div className="flex justify-between items-center mb-2">
                           <span className="font-medium text-white text-sm sm:text-base">{modelType}</span>
                           <span className="text-xs sm:text-sm text-green-400">
-                            {(model.accuracy * 100).toFixed(1)}% accuracy
+                            {(model.rSquared * 100).toFixed(1)}% R²
                           </span>
                         </div>
                         <div className="w-full bg-gray-600 rounded-full h-2">
                           <div
                             className="bg-blue-600 h-2 rounded-full"
-                            style={{ width: `${model.accuracy * 100}%` }}
+                            style={{ width: `${model.rSquared * 100}%` }}
                           />
                         </div>
                         <div className="mt-2 text-xs text-gray-400">
