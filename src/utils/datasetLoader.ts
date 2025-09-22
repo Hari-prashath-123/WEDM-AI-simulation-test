@@ -1,3 +1,86 @@
+/**
+ * Splits a dataset into k folds for cross-validation.
+ * Each fold returns an object with trainData and testData arrays.
+ * @param dataset The full dataset to split
+ * @param k Number of folds
+ */
+export function getKFoldSplits<T>(dataset: T[], k: number): Array<{ trainData: T[]; testData: T[] }> {
+  if (k < 2) throw new Error('k must be at least 2');
+  // Shuffle dataset (Fisher-Yates)
+  const shuffled = [...dataset];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  // Split into k folds
+  const foldSize = Math.floor(shuffled.length / k);
+  const folds: T[][] = [];
+  let start = 0;
+  for (let i = 0; i < k; i++) {
+    const end = i === k - 1 ? shuffled.length : start + foldSize;
+    folds.push(shuffled.slice(start, end));
+    start = end;
+  }
+  // Build train/test splits for each fold
+  const splits = folds.map((testData, i) => {
+    const trainData = folds
+      .filter((_, idx) => idx !== i)
+      .reduce((acc, fold) => acc.concat(fold), [] as T[]);
+    return { trainData, testData };
+  });
+  return splits;
+}
+// StandardScaler normalization for numerical features
+/**
+ * Scales numerical features in train and test sets using StandardScaler (z-score normalization).
+ * Returns scaled data and the mean/std for each feature for future use.
+ * @param train Array of LaserCuttingData (training set)
+ * @param test Array of LaserCuttingData (testing set)
+ */
+export function scaleFeatures(
+  train: LaserCuttingData[],
+  test: LaserCuttingData[]
+): {
+  scaledTrain: LaserCuttingData[];
+  scaledTest: LaserCuttingData[];
+  mean: { [key: string]: number };
+  std: { [key: string]: number };
+} {
+  // List of numerical feature keys
+  const numKeys: (keyof LaserCuttingData)[] = [
+    'thickness',
+    'laserPower',
+    'speed',
+    'surfaceRoughness',
+    'deviation',
+    'kerfTaper',
+    'hazDepth',
+    'linearEnergy'
+  ];
+  // Compute mean and std from training set
+  const mean: { [key: string]: number } = {};
+  const std: { [key: string]: number } = {};
+  numKeys.forEach(key => {
+    const vals = train.map(row => Number(row[key]));
+    const m = vals.reduce((a, b) => a + b, 0) / vals.length;
+    mean[key] = m;
+    std[key] = Math.sqrt(vals.reduce((sum, v) => sum + (v - m) ** 2, 0) / vals.length) || 1;
+  });
+  // Helper to scale a row
+  function scaleRow(row: LaserCuttingData): LaserCuttingData {
+    const scaled = { ...row };
+    numKeys.forEach(key => {
+      (scaled as any)[key] = (Number(row[key]) - mean[key]) / std[key];
+    });
+    return scaled;
+  }
+  return {
+    scaledTrain: train.map(scaleRow),
+    scaledTest: test.map(scaleRow),
+    mean,
+    std
+  };
+}
 // Shuffle and split dataset into train and test sets
 export function splitData<T>(dataset: T[]): { trainData: T[]; testData: T[] } {
   // Shuffle using Fisher-Yates algorithm
@@ -73,10 +156,17 @@ export function convertLaserToEDM(laserData: LaserCuttingData): EDMTrainingData 
 export function parseCSVData(csvText: string): LaserCuttingData[] {
   const lines = csvText.split('\n').filter(line => line.trim());
   const headers = lines[0].split(',').map(h => h.trim());
-  
-  return lines.slice(1).map(line => {
+  const numericalIndices = [2, 3, 4, 6, 7, 8, 9, 10];
+  let discarded = 0;
+  const data = lines.slice(1).map(line => {
     const values = line.split(',').map(v => v.trim());
-    return {
+    // Check for missing values
+    if (values.length < 11 || numericalIndices.some(idx => values[idx] === '' || values[idx] == null)) {
+      discarded++;
+      return null;
+    }
+    // Parse and check numeric columns
+    const parsed = {
       material: values[0],
       grade: values[1],
       thickness: parseFloat(values[2]),
@@ -89,11 +179,31 @@ export function parseCSVData(csvText: string): LaserCuttingData[] {
       hazDepth: parseFloat(values[9]),
       linearEnergy: parseFloat(values[10])
     };
-  }).filter(data => !isNaN(data.thickness) && !isNaN(data.laserPower));
+    // If any numeric field is NaN, discard
+    // Check each numeric property directly
+    if (
+      isNaN(parsed.thickness) ||
+      isNaN(parsed.laserPower) ||
+      isNaN(parsed.speed) ||
+      isNaN(parsed.surfaceRoughness) ||
+      isNaN(parsed.deviation) ||
+      isNaN(parsed.kerfTaper) ||
+      isNaN(parsed.hazDepth) ||
+      isNaN(parsed.linearEnergy)
+    ) {
+      discarded++;
+      return null;
+    }
+    return parsed;
+  }).filter(row => row !== null) as LaserCuttingData[];
+  if (discarded > 0) {
+    console.log(`[parseCSVData] Discarded ${discarded} row(s) due to missing or invalid numeric values.`);
+  }
+  return data;
 }
 
 // Load and convert the dataset
-export async function loadEDMDataset(): Promise<{ trainData: EDMTrainingData[]; testData: EDMTrainingData[] }> {
+export async function loadEDMDataset(): Promise<{ trainData: EDMTrainingData[]; testData: EDMTrainingData[]; mean: { [key: string]: number }; std: { [key: string]: number } }> {
   try {
     // Try to load the CSV file from the assets directory
     const response = await fetch('/src/assets/laser_cutting_parameters.csv');
@@ -102,19 +212,24 @@ export async function loadEDMDataset(): Promise<{ trainData: EDMTrainingData[]; 
     }
     const csvText = await response.text();
     const laserData = parseCSVData(csvText);
-    
     if (laserData.length === 0) {
       throw new Error('No valid data found in CSV file');
     }
-    
     console.log(`Loaded ${laserData.length} laser cutting parameter records`);
-    const edmData = laserData.map(convertLaserToEDM);
-    return splitData(edmData);
+  const { trainData: laserTrain, testData: laserTest } = splitData(laserData);
+  // Scale features on LaserCuttingData
+  const { scaledTrain, scaledTest, mean, std } = scaleFeatures(laserTrain, laserTest);
+  // Convert to EDMTrainingData after scaling
+  const edmTrain = scaledTrain.map(convertLaserToEDM);
+  const edmTest = scaledTest.map(convertLaserToEDM);
+  return { trainData: edmTrain, testData: edmTest, mean, std };
   } catch (error) {
     console.warn('Error loading CSV dataset, using synthetic data:', error);
     // Fallback to generated data
-    const edmData = generateSyntheticData();
-    return splitData(edmData);
+  // For synthetic fallback, just split and return (no scaling)
+  const edmData = generateSyntheticData();
+  const { trainData, testData } = splitData(edmData);
+  return { trainData, testData, mean: {}, std: {} };
   }
 }
 

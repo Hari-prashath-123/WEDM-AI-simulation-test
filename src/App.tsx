@@ -1,4 +1,4 @@
-import { trainSVM, trainANN, trainELM, trainGA, ModelResult, loadANNModel, engineerFeatures } from './utils/aiModels';
+import { trainSVM, trainANN, trainELM, trainGA, ModelResult, engineerFeatures, findBestAnnHyperparameters } from './utils/aiModels';
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Settings, Zap, Brain, BarChart3 } from 'lucide-react';
 import ParameterPanel from './components/ParameterPanel';
@@ -31,58 +31,64 @@ function App() {
   // Load dataset on mount
   useEffect(() => {
     loadEDMDataset().then((data) => setDataset(data));
-    // Load saved ANN model if available
+    // Load saved ANN model from backend
     (async () => {
-      const loadedModel = await loadANNModel();
-      if (loadedModel) {
-        // Reconstruct the predict function (assume feature engineering was enabled)
-        const predict = async (params: any) => {
-          const input = [
-            (params.laserPower || 3) / 6,
-            (params.speed || 3000) / 6000,
-            (params.thickness || 4) / 10,
-            (params.linearEnergy || 60) / 250,
-            (params.speed || 3000) / 6000,
-            (params.surfaceRoughness || 1.3) / 5
-          ];
-          const engineeredInput = engineerFeatures([input])[0];
-          // Use tf.tensor2d for prediction (imported tf)
-          // @ts-ignore
-          const tf = require('@tensorflow/tfjs');
-          const inputTensor = tf.tensor2d([engineeredInput], [1, 9]);
-          let outputTensor = loadedModel.predict(inputTensor);
-          // If predict returns an array, use the first tensor
-          if (Array.isArray(outputTensor)) {
-            outputTensor = outputTensor[0];
-          }
-          let resultArr;
-          if (outputTensor && typeof outputTensor.dataSync === 'function') {
-            resultArr = outputTensor.dataSync();
-          } else if (outputTensor && typeof outputTensor.array === 'function') {
-            // @ts-ignore
-            resultArr = (await outputTensor.array())[0];
-          } else {
-            resultArr = [0, 0, 0, 0];
-          }
-          const result = resultArr;
-          return {
-            materialRemovalRate: Math.max(0.1, result[0] * 10),
-            surfaceRoughness: Math.max(0.1, Math.min(5, result[1] * 5)),
-            dimensionalAccuracy: Math.max(1, Math.min(100, result[2] * 100)),
-            processingTime: Math.max(1, Math.min(300, result[3] * 100))
+      try {
+        // Fetch model JSON and weights from backend
+        const response = await fetch('http://localhost:3001/api/load-model');
+        if (!response.ok) return;
+        const { modelJson } = await response.json();
+        // Dynamically import tfjs
+        // @ts-ignore
+        const tf = require('@tensorflow/tfjs');
+        // Load model from JSON
+        const loadedModel = await tf.models.modelFromJSON(modelJson);
+        if (loadedModel) {
+          const predict = async (params: any) => {
+            const input = [
+              (params.laserPower || 3) / 6,
+              (params.speed || 3000) / 6000,
+              (params.thickness || 4) / 10,
+              (params.linearEnergy || 60) / 250,
+              (params.speed || 3000) / 6000,
+              (params.surfaceRoughness || 1.3) / 5
+            ];
+            const engineeredInput = engineerFeatures([input])[0];
+            const inputTensor = tf.tensor2d([engineeredInput], [1, 9]);
+            let outputTensor = loadedModel.predict(inputTensor);
+            if (Array.isArray(outputTensor)) {
+              outputTensor = outputTensor[0];
+            }
+            let resultArr;
+            if (outputTensor && typeof outputTensor.dataSync === 'function') {
+              resultArr = outputTensor.dataSync();
+            } else if (outputTensor && typeof outputTensor.array === 'function') {
+              resultArr = (await outputTensor.array())[0];
+            } else {
+              resultArr = [0, 0, 0, 0];
+            }
+            const result = resultArr;
+            return {
+              materialRemovalRate: Math.max(0.1, result[0] * 10),
+              surfaceRoughness: Math.max(0.1, Math.min(5, result[1] * 5)),
+              dimensionalAccuracy: Math.max(1, Math.min(100, result[2] * 100)),
+              processingTime: Math.max(1, Math.min(300, result[3] * 100))
+            };
           };
-        };
-        setTrainedModels(prev => ({
-          ...prev,
-          ANN: {
-            rSquared: 0,
-            trainingTime: 0,
-            samples: 0,
-            rmse: 0,
-            predict,
-            modelData: loadedModel
-          }
-        }));
+          setTrainedModels(prev => ({
+            ...prev,
+            ANN: {
+              rSquared: 0,
+              trainingTime: 0,
+              samples: 0,
+              rmse: 0,
+              predict,
+              modelData: loadedModel
+            }
+          }));
+        }
+      } catch (err) {
+        // Model not loaded
       }
     })();
   }, []);
@@ -115,6 +121,7 @@ function App() {
     temperature: number;
     efficiency: number;
   }>>([]);
+  const [isTuning, setIsTuning] = useState(false);
 
   // Calculate process metrics based on current parameters
   const processMetrics = useMemo(() => {
@@ -162,15 +169,27 @@ function App() {
   const handleTrainModel = async (modelType: string, dataObj?: any) => {
     if (!dataset) return;
     let model: ModelResult;
-    // Extract feature engineering flag if present
     const useFeatureEngineering = dataObj?.useFeatureEngineering ?? true;
     switch (modelType) {
       case 'SVM':
         model = await trainSVM(dataset);
         break;
-      case 'ANN':
-        model = await trainANN(dataset, dataObj, useFeatureEngineering);
+      case 'ANN': {
+        setIsTuning(true);
+        // Find best hyperparameters using grid search
+        const bestParams = await findBestAnnHyperparameters(
+          [...dataset.trainData, ...dataset.testData],
+          useFeatureEngineering
+        );
+        setIsTuning(false);
+        // Train final model with best hyperparameters
+        model = await trainANN(
+          [...dataset.trainData, ...dataset.testData],
+          bestParams,
+          useFeatureEngineering
+        );
         break;
+      }
       case 'ELM':
         model = await trainELM(dataset);
         break;
@@ -446,6 +465,13 @@ function App() {
               processMetrics={processMetrics}
               cuttingMethod={cuttingMethod}
             />
+          )}
+
+          {/* Add a simple UI indicator for tuning */}
+          {isTuning && (
+            <div style={{ color: 'orange', fontWeight: 'bold', margin: '1em 0' }}>
+              Tuning ANN hyperparameters, please wait...
+            </div>
           )}
         </div>
       </main>

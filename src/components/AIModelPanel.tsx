@@ -54,9 +54,8 @@ interface DatasetInfo {
 
 const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResults }) => {
   // ANN hyperparameters
-  const [annLearningRate, setAnnLearningRate] = useState(0.01);
-  const [annEpochs, setAnnEpochs] = useState(50);
-  const [annHiddenUnits, setAnnHiddenUnits] = useState(12);
+  // Removed manual ANN hyperparameter states
+  const [bestAnnParams, setBestAnnParams] = useState<{ learningRate: number; epochs: number; hiddenUnits: number } | null>(null);
   const [selectedModel, setSelectedModel] = useState('SVM');
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [isTraining, setIsTraining] = useState(false);
@@ -153,14 +152,6 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
             uploadedData: useUploadedData ? uploadedDataset?.preview : null,
             useFeatureEngineering
           };
-          if (selectedModel === 'ANN') {
-            dataObj = {
-              ...dataObj,
-              annLearningRate,
-              annEpochs,
-              annHiddenUnits
-            };
-          }
           onTrainModel(selectedModel, dataObj);
           return 100;
         }
@@ -373,47 +364,23 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
             <Brain className="w-5 h-5 text-green-400" />
             ANN Hyperparameters
           </h4>
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="annLearningRate" className="block text-sm text-gray-300 mb-1">Learning Rate</label>
-              <input
-                id="annLearningRate"
-                type="number"
-                min="0.0001"
-                max="1"
-                step="0.0001"
-                value={annLearningRate}
-                onChange={e => setAnnLearningRate(Number(e.target.value))}
-                className="w-full bg-gray-800 text-white rounded px-3 py-2 border border-gray-600 focus:outline-none focus:border-blue-500"
-              />
+          <button
+            className="w-full px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors mb-2"
+            onClick={() => {
+              setBestAnnParams(null);
+              onTrainModel('ANN', {});
+            }}
+            disabled={isTraining}
+          >
+            {isTraining ? 'Tuning & Training...' : 'Find Best Hyperparameters'}
+          </button>
+          {bestAnnParams && (
+            <div className="mt-3 text-sm text-green-300">
+              <div>Best Learning Rate: <span className="font-mono">{bestAnnParams.learningRate}</span></div>
+              <div>Best Epochs: <span className="font-mono">{bestAnnParams.epochs}</span></div>
+              <div>Best Hidden Units: <span className="font-mono">{bestAnnParams.hiddenUnits}</span></div>
             </div>
-            <div>
-              <label htmlFor="annEpochs" className="block text-sm text-gray-300 mb-1">Epochs</label>
-              <input
-                id="annEpochs"
-                type="number"
-                min="1"
-                max="500"
-                step="1"
-                value={annEpochs}
-                onChange={e => setAnnEpochs(Number(e.target.value))}
-                className="w-full bg-gray-800 text-white rounded px-3 py-2 border border-gray-600 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label htmlFor="annHiddenUnits" className="block text-sm text-gray-300 mb-1">Hidden Layer Units</label>
-              <input
-                id="annHiddenUnits"
-                type="number"
-                min="1"
-                max="128"
-                step="1"
-                value={annHiddenUnits}
-                onChange={e => setAnnHiddenUnits(Number(e.target.value))}
-                className="w-full bg-gray-800 text-white rounded px-3 py-2 border border-gray-600 focus:outline-none focus:border-blue-500"
-              />
-            </div>
-          </div>
+          )}
         </div>
       )}
       {/* Training Controls */}
@@ -470,14 +437,15 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
                   uploadedData: useUploadedData ? uploadedDataset?.preview : null,
                   useFeatureEngineering
                 };
-                if (modelKey === 'ANN') {
-                  dataObj = {
-                    ...dataObj,
-                    annLearningRate,
-                    annEpochs,
-                    annHiddenUnits
-                  };
-                }
+                // No manual ANN params, tuning is automatic
+          {/* Show best ANN hyperparameters in results if available */}
+          {modelKey === 'ANN' && result && result.bestParams && (
+            <div className="mt-2 text-xs text-green-300">
+              <div>Best Learning Rate: <span className="font-mono">{result.bestParams.learningRate}</span></div>
+              <div>Best Epochs: <span className="font-mono">{result.bestParams.epochs}</span></div>
+              <div>Best Hidden Units: <span className="font-mono">{result.bestParams.hiddenUnits}</span></div>
+            </div>
+          )}
                 onTrainModel(modelKey, dataObj);
               }}
               disabled={isTraining}

@@ -1,3 +1,38 @@
+/**
+ * Performs grid search over ANN hyperparameters using k-fold cross-validation.
+ * Returns the best hyperparameter combination (lowest avg RMSE).
+ * @param data Full dataset (array of EDMTrainingData)
+ * @param useFeatureEngineering Whether to use feature engineering (default: true)
+ * @param kFolds Number of folds for cross-validation (default: 5)
+ */
+export async function findBestAnnHyperparameters(
+  data: EDMTrainingData[],
+  useFeatureEngineering: boolean = true,
+  kFolds: number = 5
+): Promise<{ learningRate: number; epochs: number; hiddenUnits: number; avgRmse: number }> {
+  let bestParams = { learningRate: 0, epochs: 0, hiddenUnits: 0, avgRmse: Infinity };
+  for (const learningRate of annHyperparameterGrid.learningRate) {
+    for (const epochs of annHyperparameterGrid.epochs) {
+      for (const hiddenUnits of annHyperparameterGrid.hiddenUnits) {
+        // Run k-fold cross-validation for this combination
+        const config = { learningRate, epochs, hiddenUnits };
+        const result = await trainANN(data, config, useFeatureEngineering, kFolds);
+        // trainANN returns avgRmse as rmse
+        const avgRmse = result.rmse;
+        if (avgRmse < bestParams.avgRmse) {
+          bestParams = { learningRate, epochs, hiddenUnits, avgRmse };
+        }
+      }
+    }
+  }
+  return bestParams;
+}
+// Hyperparameter grid for ANN model
+export const annHyperparameterGrid = {
+  learningRate: [0.1, 0.01, 0.001],
+  epochs: [50, 100, 150],
+  hiddenUnits: [8, 16, 32],
+};
 // Load ANN model from localstorage
 export async function loadANNModel() {
   try {
@@ -26,7 +61,7 @@ export function engineerFeatures(inputs: number[][]): number[][] {
 }
 // Real AI model implementations for Wire EDM simulation
 import * as tf from '@tensorflow/tfjs';
-import { loadEDMDataset, EDMTrainingData } from './datasetLoader';
+import { loadEDMDataset, EDMTrainingData, getKFoldSplits } from './datasetLoader';
 
 export interface ModelResult {
   rSquared: number;
@@ -50,8 +85,6 @@ export interface ModelResult {
   modelData?: any;
   featureImportance?: Record<string, number>;
 }
-
-// ...existing code...
 
 // Support Vector Machine implementation
 export async function trainSVM(
@@ -186,19 +219,105 @@ export interface ANNConfig {
 
 
 export async function trainANN(
-  data: { trainData: EDMTrainingData[]; testData: EDMTrainingData[] },
+  data: EDMTrainingData[],
   config: ANNConfig = { learningRate: 0.01, epochs: 50, hiddenUnits: 12 },
-  useFeatureEngineering: boolean = true
-): Promise<ModelResult> {
+  useFeatureEngineering: boolean = true,
+  kFolds: number = 5
+): Promise<any> {
   const startTime = Date.now();
+  const folds = getKFoldSplits(data, kFolds);
+  const foldResults = [];
+  for (let foldIdx = 0; foldIdx < folds.length; foldIdx++) {
+    const { trainData: train, testData: test } = folds[foldIdx];
+    // Prepare features and targets
+    const trainFeatures = train.map(d => [
+      d.voltage / 300,
+      d.current / 50,
+      d.pulseOnTime / 100,
+      d.pulseOffTime / 200,
+      d.wireSpeed / 500,
+      d.dielectricFlow / 20
+    ]);
+    const testFeatures = test.map(d => [
+      d.voltage / 300,
+      d.current / 50,
+      d.pulseOnTime / 100,
+      d.pulseOffTime / 200,
+      d.wireSpeed / 500,
+      d.dielectricFlow / 20
+    ]);
+    // Conditionally apply feature engineering
+    const engineeredTrainFeatures = useFeatureEngineering ? engineerFeatures(trainFeatures) : trainFeatures;
+    const engineeredTestFeatures = useFeatureEngineering ? engineerFeatures(testFeatures) : testFeatures;
+    const trainTargets = train.map(d => [
+      d.materialRemovalRate / 10,
+      d.surfaceRoughness / 5,
+      d.dimensionalAccuracy / 100,
+      d.processingTime / 100
+    ]);
+    const testTargets = test.map(d => [
+      d.materialRemovalRate / 10,
+      d.surfaceRoughness / 5,
+      d.dimensionalAccuracy / 100,
+      d.processingTime / 100
+    ]);
+    // Convert all to tensors
+    const xs = tf.tensor2d(engineeredTrainFeatures);
+    const ys = tf.tensor2d(trainTargets);
+    const xsTest = tf.tensor2d(engineeredTestFeatures);
+    const ysTest = tf.tensor2d(testTargets);
+    // Build model
+    const model = tf.sequential();
+    model.add(tf.layers.dense({ inputShape: [useFeatureEngineering ? 9 : 6], units: config.hiddenUnits, activation: 'relu' }));
+    model.add(tf.layers.dense({ units: 4, activation: 'linear' }));
+    model.compile({ optimizer: tf.train.adam(config.learningRate), loss: 'meanSquaredError' });
+    // Train model
+    await model.fit(xs, ys, {
+      epochs: config.epochs,
+      batchSize: 8,
+      verbose: 0,
+      validationData: [xsTest, ysTest],
+    });
+    // Evaluate model: calculate RMSE and R-squared on test data
+    const predsTestTensor = model.predict(xsTest) as tf.Tensor;
+    const predsTestArr = await predsTestTensor.array() as number[][];
+    const testTargetsArr = await ysTest.array() as number[][];
+    // Calculate RMSE and R2
+    let totalError = 0;
+    let mean = 0;
+    let n = 0;
+    const flatTargets = testTargetsArr.flat();
+    mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
+    let residualSum = 0;
+    let totalSumSquares = 0;
+    for (let i = 0; i < predsTestArr.length; i++) {
+      for (let j = 0; j < 4; j++) {
+        const pred = predsTestArr[i][j];
+        const actual = testTargetsArr[i][j];
+        const diff = pred - actual;
+        totalError += diff * diff;
+        residualSum += diff * diff;
+        totalSumSquares += (actual - mean) * (actual - mean);
+        n++;
+      }
+    }
+    const rmse = Math.sqrt(totalError / n);
+    const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
+    // Collect validation loss, RMSE, R2 for this fold
+    foldResults.push({
+      fold: foldIdx + 1,
+      rmse,
+      rSquared,
+      samples: train.length,
+    });
+  }
 
-  const train = data.trainData;
-  const test = data.testData;
-  console.log(`Training ANN (TF.js) with ${train.length} training samples and ${test.length} test samples`);
+  // Calculate average RMSE and R2 across folds
+  const avgRmse = foldResults.reduce((sum, f) => sum + f.rmse, 0) / foldResults.length;
+  const avgR2 = foldResults.reduce((sum, f) => sum + f.rSquared, 0) / foldResults.length;
 
-
-  // Prepare training features and targets
-  const trainFeatures = train.map(d => [
+  // Retrain on the full dataset for final model
+  const allFeatures = data.map(d => [
     d.voltage / 300,
     d.current / 50,
     d.pulseOnTime / 100,
@@ -206,62 +325,39 @@ export async function trainANN(
     d.wireSpeed / 500,
     d.dielectricFlow / 20
   ]);
-  const testFeatures = test.map(d => [
-    d.voltage / 300,
-    d.current / 50,
-    d.pulseOnTime / 100,
-    d.pulseOffTime / 200,
-    d.wireSpeed / 500,
-    d.dielectricFlow / 20
-  ]);
-  // Conditionally apply feature engineering
-  const engineeredTrainFeatures = useFeatureEngineering ? engineerFeatures(trainFeatures) : trainFeatures;
-  const engineeredTestFeatures = useFeatureEngineering ? engineerFeatures(testFeatures) : testFeatures;
-  const trainTargets = train.map(d => [
+  const engineeredAllFeatures = useFeatureEngineering ? engineerFeatures(allFeatures) : allFeatures;
+  const allTargets = data.map(d => [
     d.materialRemovalRate / 10,
     d.surfaceRoughness / 5,
     d.dimensionalAccuracy / 100,
     d.processingTime / 100
   ]);
-  const testTargets = test.map(d => [
-    d.materialRemovalRate / 10,
-    d.surfaceRoughness / 5,
-    d.dimensionalAccuracy / 100,
-    d.processingTime / 100
-  ]);
-
-  // Convert all to tensors
-  const xs = tf.tensor2d(engineeredTrainFeatures);
-  const ys = tf.tensor2d(trainTargets);
-  const xsTest = tf.tensor2d(engineeredTestFeatures);
-  const ysTest = tf.tensor2d(testTargets);
-
-  // Build model
-  const model = tf.sequential();
-  model.add(tf.layers.dense({ inputShape: [useFeatureEngineering ? 9 : 6], units: config.hiddenUnits, activation: 'relu' }));
-  model.add(tf.layers.dense({ units: 4, activation: 'linear' }));
-
-  model.compile({ optimizer: tf.train.adam(config.learningRate), loss: 'meanSquaredError' });
-
-  // Train model
-  const history = await model.fit(xs, ys, {
+  const xsAll = tf.tensor2d(engineeredAllFeatures);
+  const ysAll = tf.tensor2d(allTargets);
+  const finalModel = tf.sequential();
+  finalModel.add(tf.layers.dense({ inputShape: [useFeatureEngineering ? 9 : 6], units: config.hiddenUnits, activation: 'relu' }));
+  finalModel.add(tf.layers.dense({ units: 4, activation: 'linear' }));
+  finalModel.compile({ optimizer: tf.train.adam(config.learningRate), loss: 'meanSquaredError' });
+  await finalModel.fit(xsAll, ysAll, {
     epochs: config.epochs,
     batchSize: 8,
     verbose: 0,
-    validationData: [xsTest, ysTest],
-    callbacks: {
-      onEpochEnd: (epoch, logs) => {
-        if (epoch % 10 === 0) {
-          console.log(`Epoch ${epoch}, Loss: ${logs?.loss}, Val Loss: ${logs?.val_loss}`);
-        }
-      }
-    }
   });
-  // Save the trained model to localstorage
-  await model.save('localstorage://my-ann-model');
+  // Save the trained model to backend server using fetch (tf.io.http does not support POST for saving)
+  try {
+    const modelJson = finalModel.toJSON();
+    await fetch('http://localhost:3001/api/save-model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelName: 'my-ann-model', modelData: modelJson })
+    });
+  } catch (err) {
+    // Log error
+    console.error('Failed to save model to backend:', err);
+  }
 
   // Calculate feature importance from first dense layer weights
-  const firstLayerWeights = model.layers[0].getWeights()[0].arraySync() as number[][];
+  const firstLayerWeights = finalModel.layers[0].getWeights()[0].arraySync() as number[][];
   // Feature names (order must match input)
   const featureNames = useFeatureEngineering
     ? [
@@ -293,38 +389,8 @@ export async function trainANN(
     featureImportance[featureNames[i]] = sum;
   }
 
-  // Evaluate model: calculate RMSE and R-squared on test data
-  const predsTestTensor = model.predict(xsTest) as tf.Tensor;
-  const predsTestArr = await predsTestTensor.array() as number[][];
-  const testTargetsArr = await ysTest.array() as number[][];
-
-  // Calculate RMSE
-  let totalError = 0;
-  let mean = 0;
-  let n = 0;
-  // Flatten testTargetsArr for mean calculation
-  const flatTargets = testTargetsArr.flat();
-  mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
-  // Calculate residual sum of squares and total sum of squares
-  let residualSum = 0;
-  let totalSumSquares = 0;
-  for (let i = 0; i < predsTestArr.length; i++) {
-    for (let j = 0; j < 4; j++) {
-      const pred = predsTestArr[i][j];
-      const actual = testTargetsArr[i][j];
-      const diff = pred - actual;
-      totalError += diff * diff;
-      residualSum += diff * diff;
-      totalSumSquares += (actual - mean) * (actual - mean);
-      n++;
-    }
-  }
-  const rmse = Math.sqrt(totalError / n);
-  const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
-
-  // Prediction function
+  // Final prediction function
   const predict = (params: any) => {
-    // Normalize input params to match training normalization
     const input = [
       (params.laserPower || 3) / 6,
       (params.speed || 3000) / 6000,
@@ -333,13 +399,9 @@ export async function trainANN(
       (params.speed || 3000) / 6000,
       (params.surfaceRoughness || 1.3) / 5
     ];
-    // Apply feature engineering to the input
     const engineeredInput = engineerFeatures([input])[0];
-    // Create a 2D tensor of shape [1, 9]
     const inputTensor = tf.tensor2d([engineeredInput], [1, 9]);
-    // Predict using the trained model
-    const outputTensor = model.predict(inputTensor) as tf.Tensor;
-    // Extract data from the output tensor
+    const outputTensor = finalModel.predict(inputTensor) as tf.Tensor;
     const result = outputTensor.dataSync();
     return {
       materialRemovalRate: Math.max(0.1, result[0] * 10),
@@ -350,10 +412,10 @@ export async function trainANN(
   };
 
   return {
-    rSquared,
+    rSquared: avgR2,
     trainingTime: Date.now() - startTime,
-    samples: train.length,
-    rmse,
+    samples: data.length,
+    rmse: avgRmse,
     predict,
     featureImportance
   };
