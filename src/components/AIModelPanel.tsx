@@ -419,36 +419,44 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
       )}
 
       {/* Training Results */}
-      {trainingResults[selectedModel] && (
-        <div className="bg-gray-700 p-4 rounded-lg">
-          <h4 className="font-medium text-white mb-2">Training Results</h4>
+      {Object.entries(trainingResults).map(([modelKey, result]) => (
+        <div key={modelKey} className="bg-gray-700 p-4 rounded-lg mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-medium text-white">{modelKey} Training Results</h4>
+            <button
+              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors"
+              onClick={() => handleTrainModel(modelKey, {})}
+              disabled={isTraining}
+            >
+              Retrain
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-gray-400">Accuracy:</span>
               <span className="text-green-400 ml-2 font-mono">
-                {(trainingResults[selectedModel].accuracy * 100).toFixed(1)}%
+                {result.accuracy !== undefined ? (result.accuracy * 100).toFixed(1) + '%' : (result.rSquared !== undefined ? (result.rSquared * 100).toFixed(1) + '%' : '--')}
               </span>
             </div>
             <div>
               <span className="text-gray-400">Training Time:</span>
               <span className="text-blue-400 ml-2 font-mono">
-                {trainingResults[selectedModel].trainingTime}ms
+                {result.trainingTime}ms
               </span>
             </div>
             <div>
               <span className="text-gray-400">Samples:</span>
               <span className="text-yellow-400 ml-2 font-mono">
-                {trainingResults[selectedModel].samples}
+                {result.samples}
               </span>
             </div>
             <div>
               <span className="text-gray-400">RMSE:</span>
               <span className="text-orange-400 ml-2 font-mono">
-                {trainingResults[selectedModel].rmse.toFixed(3)}
+                {result.rmse !== undefined ? result.rmse.toFixed(3) : '--'}
               </span>
             </div>
           </div>
-          
           {useUploadedData && uploadedDataset && (
             <div className="mt-2 text-xs text-blue-400">
               Trained with uploaded dataset: {uploadedDataset.name}
@@ -465,7 +473,7 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
             </div>
           )}
         </div>
-      )}
+      ))}
 
       {/* Dataset Requirements */}
       <div className="mt-4 p-3 bg-gray-700/50 rounded-lg">

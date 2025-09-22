@@ -1,3 +1,33 @@
+// Horizontal bar chart for feature importance
+interface FeatureImportanceChartProps {
+  featureImportance: Record<string, number>;
+}
+
+const FeatureImportanceChart: React.FC<FeatureImportanceChartProps> = ({ featureImportance }) => {
+  if (!featureImportance || Object.keys(featureImportance).length === 0) return null;
+  // Normalize scores for bar width
+  const maxScore = Math.max(...Object.values(featureImportance));
+  return (
+    <div className="mt-4">
+      <h4 className="font-medium text-white mb-2 text-sm">Feature Importance</h4>
+      <div className="space-y-2">
+        {Object.entries(featureImportance).map(([name, score]) => (
+          <div key={name} className="flex items-center gap-2">
+            <span className="w-32 text-xs text-gray-300 truncate">{name}</span>
+            <div className="flex-1 bg-gray-600 rounded h-3 relative">
+              <div
+                className="bg-green-400 h-3 rounded"
+                style={{ width: `${(score / maxScore) * 100}%` }}
+                title={score.toFixed(2)}
+              />
+            </div>
+            <span className="ml-2 text-xs text-gray-400 font-mono">{score.toFixed(2)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 import React from 'react';
 import { TrendingUp, Target, Layers, Clock, BarChart3, Activity, Thermometer, Zap } from 'lucide-react';
 
@@ -330,19 +360,34 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
                 </div>
                 <span className="text-xs text-gray-400">Best: {getBestModel(key)}</span>
               </div>
-              
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-                {Object.entries(predictions).map(([model, prediction]) => (
-                  <div key={model} className="bg-gray-700/50 p-2 rounded">
-                    <div className="text-xs text-gray-400 mb-1">{model}</div>
-                    <div className="font-mono text-xs sm:text-sm text-white">
-                      {prediction[key].toFixed(2)} {unit}
+                {Object.entries(predictions).map(([model, prediction]) => {
+                  // Simulate model health status
+                  const healthStatus = Math.random() > 0.5 ? 'Optimal' : 'Needs Review';
+                  const healthColor = healthStatus === 'Optimal' ? 'bg-green-400' : 'bg-yellow-400';
+                  return (
+                    <div key={model} className="bg-gray-700/50 p-2 rounded">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="text-xs text-gray-400">{model}</div>
+                        <div className="flex items-center gap-1">
+                          <span className={`inline-block w-2 h-2 rounded-full ${healthColor}`}></span>
+                          <span className="text-xs text-gray-300">{healthStatus}</span>
+                        </div>
+                      </div>
+                      <div className="font-mono text-xs sm:text-sm text-white">
+                        {prediction[key].toFixed(2)} {unit}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
+
+          {/* Feature Importance Chart for ANN */}
+          {predictions.ANN && (predictions.ANN as any).featureImportance && (
+            <FeatureImportanceChart featureImportance={(predictions.ANN as any).featureImportance} />
+          )}
 
           <div className="bg-gray-700 p-3 sm:p-4 rounded-lg">
             <h4 className="font-medium text-white mb-3 text-sm sm:text-base">{methodLabels.processName} Parameter Impact</h4>

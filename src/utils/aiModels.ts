@@ -1,3 +1,13 @@
+// Load ANN model from localstorage
+export async function loadANNModel() {
+  try {
+    const model = await tf.loadLayersModel('localstorage://my-ann-model');
+    return model;
+  } catch (err) {
+    console.log('No saved model found');
+    return null;
+  }
+}
 /**
  * Expands each feature array with engineered features:
  * 1. Interaction term: voltage * current
@@ -31,6 +41,7 @@ export interface ModelResult {
   };
   weights?: number[];
   modelData?: any;
+  featureImportance?: Record<string, number>;
 }
 
 // ...existing code...
@@ -239,6 +250,41 @@ export async function trainANN(
       }
     }
   });
+  // Save the trained model to localstorage
+  await model.save('localstorage://my-ann-model');
+
+  // Calculate feature importance from first dense layer weights
+  const firstLayerWeights = model.layers[0].getWeights()[0].arraySync() as number[][];
+  // Feature names (order must match input)
+  const featureNames = useFeatureEngineering
+    ? [
+        'voltage',
+        'current',
+        'pulseOnTime',
+        'pulseOffTime',
+        'wireSpeed',
+        'dielectricFlow',
+        'interaction',
+        'powerDensity',
+        'dutyCycle'
+      ]
+    : [
+        'voltage',
+        'current',
+        'pulseOnTime',
+        'pulseOffTime',
+        'wireSpeed',
+        'dielectricFlow'
+      ];
+  // For each feature, sum the absolute values of its weights to all hidden units
+  const featureImportance: Record<string, number> = {};
+  for (let i = 0; i < featureNames.length; i++) {
+    let sum = 0;
+    for (let j = 0; j < firstLayerWeights[i].length; j++) {
+      sum += Math.abs(firstLayerWeights[i][j]);
+    }
+    featureImportance[featureNames[i]] = sum;
+  }
 
   // Evaluate model: calculate RMSE and R-squared on test data
   const predsTestTensor = model.predict(xsTest) as tf.Tensor;
@@ -301,7 +347,8 @@ export async function trainANN(
     trainingTime: Date.now() - startTime,
     samples: train.length,
     rmse,
-    predict
+    predict,
+    featureImportance
   };
 }
 

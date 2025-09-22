@@ -1,4 +1,4 @@
-import { trainSVM, trainANN, trainELM, trainGA, ModelResult } from './utils/aiModels';
+import { trainSVM, trainANN, trainELM, trainGA, ModelResult, loadANNModel, engineerFeatures } from './utils/aiModels';
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Settings, Zap, Brain, BarChart3 } from 'lucide-react';
 import ParameterPanel from './components/ParameterPanel';
@@ -31,6 +31,60 @@ function App() {
   // Load dataset on mount
   useEffect(() => {
     loadEDMDataset().then((data) => setDataset(data));
+    // Load saved ANN model if available
+    (async () => {
+      const loadedModel = await loadANNModel();
+      if (loadedModel) {
+        // Reconstruct the predict function (assume feature engineering was enabled)
+        const predict = (params: any) => {
+          const input = [
+            (params.laserPower || 3) / 6,
+            (params.speed || 3000) / 6000,
+            (params.thickness || 4) / 10,
+            (params.linearEnergy || 60) / 250,
+            (params.speed || 3000) / 6000,
+            (params.surfaceRoughness || 1.3) / 5
+          ];
+          const engineeredInput = engineerFeatures([input])[0];
+          // Use tf.tensor2d for prediction (imported tf)
+          // @ts-ignore
+          const tf = require('@tensorflow/tfjs');
+          const inputTensor = tf.tensor2d([engineeredInput], [1, 9]);
+          let outputTensor = loadedModel.predict(inputTensor);
+          // If predict returns an array, use the first tensor
+          if (Array.isArray(outputTensor)) {
+            outputTensor = outputTensor[0];
+          }
+          let resultArr;
+          if (outputTensor && typeof outputTensor.dataSync === 'function') {
+            resultArr = outputTensor.dataSync();
+          } else if (outputTensor && typeof outputTensor.array === 'function') {
+            // @ts-ignore
+            resultArr = (await outputTensor.array())[0];
+          } else {
+            resultArr = [0, 0, 0, 0];
+          }
+          const result = resultArr;
+          return {
+            materialRemovalRate: Math.max(0.1, result[0] * 10),
+            surfaceRoughness: Math.max(0.1, Math.min(5, result[1] * 5)),
+            dimensionalAccuracy: Math.max(1, Math.min(100, result[2] * 100)),
+            processingTime: Math.max(1, Math.min(300, result[3] * 100))
+          };
+        };
+        setTrainedModels(prev => ({
+          ...prev,
+          ANN: {
+            rSquared: 0,
+            trainingTime: 0,
+            samples: 0,
+            rmse: 0,
+            predict,
+            modelData: loadedModel
+          }
+        }));
+      }
+    })();
   }, []);
   const [parameters, setParameters] = useState<EDMParameters>({
     material: 'Mild Steel',
@@ -104,7 +158,7 @@ function App() {
     setIsSimulationRunning(false);
   };
 
-  // Accepts (modelType, dataObj) from AIModelPanel
+  // Accepts (modelType, dataObj) from AIModelPanel or just modelType for retrain
   const handleTrainModel = async (modelType: string, dataObj?: any) => {
     if (!dataset) return;
     let model: ModelResult;
