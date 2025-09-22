@@ -36,7 +36,7 @@ function App() {
       const loadedModel = await loadANNModel();
       if (loadedModel) {
         // Reconstruct the predict function (assume feature engineering was enabled)
-        const predict = (params: any) => {
+        const predict = async (params: any) => {
           const input = [
             (params.laserPower || 3) / 6,
             (params.speed || 3000) / 6000,
@@ -182,7 +182,10 @@ function App() {
     }
     setTrainedModels(prev => ({ ...prev, [modelType]: model }));
     // Generate prediction for current parameters
-    const prediction = model.predict(parameters);
+    let prediction = model.predict(parameters);
+    if (prediction instanceof Promise) {
+      prediction = await prediction;
+    }
     setPredictions(prev => ({ ...prev, [modelType]: prediction }));
   };
 

@@ -33,12 +33,19 @@ export interface ModelResult {
   trainingTime: number;
   samples: number;
   rmse: number;
-  predict: (params: any) => {
-    materialRemovalRate: number;
-    surfaceRoughness: number;
-    dimensionalAccuracy: number;
-    processingTime: number;
-  };
+  predict: (params: any) =>
+    | {
+        materialRemovalRate: number;
+        surfaceRoughness: number;
+        dimensionalAccuracy: number;
+        processingTime: number;
+      }
+    | Promise<{
+        materialRemovalRate: number;
+        surfaceRoughness: number;
+        dimensionalAccuracy: number;
+        processingTime: number;
+      }>;
   weights?: number[];
   modelData?: any;
   featureImportance?: Record<string, number>;

@@ -1,5 +1,44 @@
 import React, { useState, useRef } from 'react';
-import { Brain, Target, Zap, Dna, Upload, FileText, Database } from 'lucide-react';
+import { Brain, Target, Zap, Dna, Upload, FileText, Database, BarChart2 } from 'lucide-react';
+// FeatureImportanceChart component
+interface FeatureImportanceChartProps {
+  importanceData: { [key: string]: number };
+}
+
+const FeatureImportanceChart: React.FC<FeatureImportanceChartProps> = ({ importanceData }) => {
+  // 1. Convert to array of { name, score }
+  const data = Object.entries(importanceData || {}).map(([name, score]) => ({ name, score }));
+  // 2. Sort descending by score
+  data.sort((a, b) => b.score - a.score);
+  if (!data.length) return null;
+  // 3. Find max score for scaling
+  const max = Math.max(...data.map(d => d.score));
+  // 4. Render chart with title and bars
+  return (
+    <div className="bg-gray-700 p-4 rounded-lg mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <BarChart2 className="w-5 h-5 text-yellow-400" />
+        <span className="font-semibold text-white text-sm">Feature Importance Analysis</span>
+      </div>
+      <div className="space-y-2">
+        {data.map(({ name, score }) => (
+          <div key={name} className="flex items-center gap-2">
+            <span className="text-xs text-gray-300 w-28 truncate">{name}</span>
+            <div className="flex-1 bg-gray-800 rounded h-3 relative">
+              <div
+                className="bg-yellow-400 h-3 rounded"
+                style={{ width: `${max > 0 ? (score / max) * 100 : 0}%` }}
+              />
+              <span className="absolute right-2 top-0 text-xs text-yellow-200 font-mono">
+                {score.toFixed(3)}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 interface AIModelPanelProps {
   onTrainModel: (modelType: string, data: any) => void;
@@ -424,8 +463,23 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
           <div className="flex items-center justify-between mb-2">
             <h4 className="font-medium text-white">{modelKey} Training Results</h4>
             <button
-              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors"
-              onClick={() => handleTrainModel(modelKey, {})}
+              className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-sm"
+              onClick={() => {
+                let dataObj: any = {
+                  useRealData: useRealDataset,
+                  uploadedData: useUploadedData ? uploadedDataset?.preview : null,
+                  useFeatureEngineering
+                };
+                if (modelKey === 'ANN') {
+                  dataObj = {
+                    ...dataObj,
+                    annLearningRate,
+                    annEpochs,
+                    annHiddenUnits
+                  };
+                }
+                onTrainModel(modelKey, dataObj);
+              }}
               disabled={isTraining}
             >
               Retrain
