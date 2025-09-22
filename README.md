@@ -1,1 +1,1 @@
-# WEDM-AI-simulation-test 
+WEDM-AI-simulation
