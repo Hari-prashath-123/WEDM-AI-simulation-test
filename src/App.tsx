@@ -209,8 +209,8 @@ function App() {
     if (!dataset) return;
     let model: ModelResult;
     const useFeatureEngineering = dataObj?.useFeatureEngineering ?? true;
-    // Use a flat array for all models
     const allData = [...dataset.trainData, ...dataset.testData];
+
     switch (modelType) {
       case 'SVM':
         model = await trainSVM(allData);
@@ -218,12 +218,14 @@ function App() {
       case 'ANN': {
         setIsTuning(true);
         try {
-          // findBestAnnHyperparameters returns the final trained model and bestParams
+          // CORRECTED: findBestAnnHyperparameters already returns the final trained model.
+          // We just need to await its result and assign it directly.
           model = await findBestAnnHyperparameters(
             allData,
             useFeatureEngineering
           );
         } finally {
+          // This ensures the "Tuning..." message is always removed after the process.
           setIsTuning(false);
         }
         break;
@@ -237,8 +239,9 @@ function App() {
       default:
         return;
     }
+
     setTrainedModels(prev => ({ ...prev, [modelType]: model }));
-    // Generate prediction for current parameters
+    
     let prediction = model.predict(parameters);
     if (prediction instanceof Promise) {
       prediction = await prediction;

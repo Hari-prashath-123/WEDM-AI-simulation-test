@@ -437,15 +437,6 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
                   uploadedData: useUploadedData ? uploadedDataset?.preview : null,
                   useFeatureEngineering
                 };
-                // No manual ANN params, tuning is automatic
-          {/* Show best ANN hyperparameters in results if available */}
-          {modelKey === 'ANN' && result && result.bestParams && (
-            <div className="mt-2 text-xs text-green-300">
-              <div>Best Learning Rate: <span className="font-mono">{result.bestParams.learningRate}</span></div>
-              <div>Best Epochs: <span className="font-mono">{result.bestParams.epochs}</span></div>
-              <div>Best Hidden Units: <span className="font-mono">{result.bestParams.hiddenUnits}</span></div>
-            </div>
-          )}
                 onTrainModel(modelKey, dataObj);
               }}
               disabled={isTraining}
@@ -479,6 +470,78 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
               </span>
             </div>
           </div>
+          {/* Show best ANN hyperparameters in results if available */}
+          {modelKey === 'ANN' && result && result.bestParams && (
+            <div className="mt-2 text-xs text-green-300">
+              <div>Best Learning Rate: <span className="font-mono">{result.bestParams.learningRate}</span></div>
+              <div>Best Epochs: <span className="font-mono">{result.bestParams.epochs}</span></div>
+              <div>Best Hidden Units: <span className="font-mono">{result.bestParams.hiddenUnits}</span></div>
+            </div>
+          )}
+          {/* SVM calculation example and accuracy explanation */}
+          {modelKey === 'SVM' && result && (
+            <div className="mt-4 p-3 bg-gray-800 rounded text-xs text-blue-200">
+              <div className="font-semibold text-blue-300 mb-2">How SVM calculates predictions (example):</div>
+              <div>
+                The SVM model predicts each output using a linear formula:<br />
+                <span className="font-mono text-blue-100">
+                  y = w₀ + w₁·x₁ + w₂·x₂ + ... + wₙ·xₙ
+                </span><br />
+                <br />
+                <b>Example calculation for Material Removal Rate:</b><br />
+                <span className="font-mono text-blue-200">
+                  y = w₀ + w₁·x₁ + w₂·x₂ + w₃·x₃ + w₄·x₄ + w₅·x₅ + w₆·x₆
+                </span><br />
+                Suppose the normalized input features are:<br />
+                <span className="font-mono text-blue-100">
+                  x₁ = laserPower = 0.5<br />
+                  x₂ = speed = 0.6<br />
+                  x₃ = thickness = 0.4<br />
+                  x₄ = linearEnergy = 0.3<br />
+                  x₅ = speed (again) = 0.6<br />
+                  x₆ = surfaceRoughness = 0.2<br />
+                </span>
+                <br />
+                And the learned weights for Material Removal Rate are:<br />
+                <span className="font-mono text-blue-100">
+                  w₀ = 0.8<br />
+                  w₁ = 1.2<br />
+                  w₂ = -0.5<br />
+                  w₃ = 0.9<br />
+                  w₄ = 0.3<br />
+                  w₅ = 0.7<br />
+                  w₆ = -0.2<br />
+                </span>
+                <br />
+                The prediction is calculated as:<br />
+                <span className="font-mono text-blue-100">
+                  y = 0.8 + 1.2×0.5 + (-0.5)×0.6 + 0.9×0.4 + 0.3×0.3 + 0.7×0.6 + (-0.2)×0.2<br />
+                  &nbsp; = 0.8 + 0.6 - 0.3 + 0.36 + 0.09 + 0.42 - 0.04<br />
+                  &nbsp; = 1.93
+                </span><br />
+                <br />
+                This value is then scaled back to the real-world units for display.<br />
+                <br />
+                <b>How Accuracy (R²) is calculated:</b><br />
+                <span className="font-mono text-blue-100">
+                  R² = 1 - (sum of squared errors / sum of squared deviations from mean)
+                </span><br />
+                <br />
+                <b>Example:</b><br />
+                Suppose the true values for a test set are [2.0, 2.5, 3.0] and the predicted values are [1.8, 2.7, 2.9].<br />
+                <ul className="list-disc ml-6">
+                  <li>Mean of true values = (2.0 + 2.5 + 3.0) / 3 = 2.5</li>
+                  <li>Sum of squared errors = (2.0-1.8)² + (2.5-2.7)² + (3.0-2.9)² = 0.04 + 0.04 + 0.01 = 0.09</li>
+                  <li>Sum of squared deviations from mean = (2.0-2.5)² + (2.5-2.5)² + (3.0-2.5)² = 0.25 + 0 + 0.25 = 0.5</li>
+                  <li>R² = 1 - (0.09 / 0.5) = 0.82 (or 82%)</li>
+                </ul>
+                <br />
+                If your model's R² is 0.064, that means it explains 6.4% of the variance in the test data.<br />
+                <br />
+                <b>Note:</b> R² can be low if the model's predictions are not close to the actual values.
+              </div>
+            </div>
+          )}
           {useUploadedData && uploadedDataset && (
             <div className="mt-2 text-xs text-blue-400">
               Trained with uploaded dataset: {uploadedDataset.name}

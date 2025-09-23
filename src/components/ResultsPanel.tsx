@@ -187,9 +187,38 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
             {data[data.length - 1]?.toFixed(2)} {unit}
           </span>
         </div>
-        <svg width="100%" height={height} className="overflow-visible">
+        <svg width="100%" height={height + 32} style={{ paddingLeft: 28, overflow: 'visible' }}>
+          {/* Y axis ticks and label */}
+          {[0, 0.5, 1].map((t, i) => {
+            const y = height - t * height + 8;
+            const value = (min + t * (max - min)).toFixed(2);
+            return (
+              <g key={i}>
+                <line x1={32} y1={y} x2={132} y2={y} stroke="#374151" strokeDasharray="2,2" />
+                <text x={28} y={y + 4} fontSize="10" fill="#9ca3af" textAnchor="end">{value}</text>
+              </g>
+            );
+          })}
+          {/* X axis ticks and label */}
+          {[0, Math.floor(data.length / 2), data.length - 1].map((idx, i) => {
+            const x = 32 + (idx / (data.length - 1)) * 100;
+            return (
+              <g key={i}>
+                <line x1={x} y1={height + 8} x2={x} y2={height + 12} stroke="#9ca3af" />
+                <text x={x} y={height + 24} fontSize="10" fill="#9ca3af" textAnchor="middle">{idx}</text>
+              </g>
+            );
+          })}
+          {/* Y axis label */}
+          <text x={10} y={height / 2 + 8} fontSize="11" fill="#9ca3af" textAnchor="middle" transform={`rotate(-90 10,${height / 2 + 8})`}>{unit}</text>
+          {/* X axis label */}
+          <text x={82} y={height + 30} fontSize="11" fill="#9ca3af" textAnchor="middle">Time (s)</text>
           <polyline
-            points={points}
+            points={data.map((value, index) => {
+              const x = 32 + (index / (data.length - 1)) * 100;
+              const y = height - ((value - min) / range) * height + 8;
+              return `${x},${y}`;
+            }).join(' ')}
             fill="none"
             stroke={color}
             strokeWidth="2"
@@ -202,7 +231,11 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
             </linearGradient>
           </defs>
           <polygon
-            points={`0,${height} ${points} 100,${height}`}
+            points={`32,${height + 8} ${data.map((value, index) => {
+              const x = 32 + (index / (data.length - 1)) * 100;
+              const y = height - ((value - min) / range) * height + 8;
+              return `${x},${y}`;
+            }).join(' ')} 132,${height + 8}`}
             fill={`url(#gradient-${label})`}
           />
         </svg>
