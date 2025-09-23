@@ -217,20 +217,15 @@ function App() {
         break;
       case 'ANN': {
         setIsTuning(true);
-        // Find best hyperparameters using grid search
-        const bestParamsResult = await findBestAnnHyperparameters(
-          allData,
-          useFeatureEngineering
-        );
-        // Now train the final model with the best hyperparameters
-        const finalModel = await trainANN(
-          allData,
-          bestParamsResult.bestParams,
-          useFeatureEngineering
-        );
-        // Attach bestParams to the final model result
-        model = { ...finalModel, bestParams: bestParamsResult.bestParams };
-        setIsTuning(false);
+        try {
+          // findBestAnnHyperparameters returns the final trained model and bestParams
+          model = await findBestAnnHyperparameters(
+            allData,
+            useFeatureEngineering
+          );
+        } finally {
+          setIsTuning(false);
+        }
         break;
       }
       case 'ELM':

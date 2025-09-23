@@ -521,7 +521,7 @@ export async function trainELM(
       d.dimensionalAccuracy / 100,
       d.processingTime / 100
     ]);
-    // Calculate hidden layer output matrix H for training
+    // Calculate hidden layer output matrix H (activation: tanh)
     const H: number[][] = [];
     for (let i = 0; i < trainFeatures.length; i++) {
       const hiddenOutput: number[] = [];
@@ -530,15 +530,16 @@ export async function trainELM(
         for (let k = 0; k < inputSize; k++) {
           sum += trainFeatures[i][k] * inputWeights[j][k];
         }
-          hiddenOutput.push(Math.tanh(sum));
+        hiddenOutput.push(Math.tanh(sum));
       }
       H.push(hiddenOutput);
     }
     // Calculate output weights using Moore-Penrose pseudoinverse
     const HT = transpose(H);
     const HTH = matrixMultiply(HT, H);
-      for (let i = 0; i < HTH.length; i++) {
-        HTH[i][i] += 0.01; // Increase regularization for better numerical stability
+    // Increase regularization for better numerical stability
+    for (let i = 0; i < HTH.length; i++) {
+      HTH[i][i] += 0.1;
     }
     const HTHInv = matrixInverse(HTH);
     const HTHInvHT = matrixMultiply(HTHInv, HT);
@@ -562,11 +563,11 @@ export async function trainELM(
       }
     }
     const rmse = Math.sqrt(totalError / n);
-  let rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
-  // Clamp R2 to [0, 1] for reliability
-  if (isNaN(rSquared) || !isFinite(rSquared) || rSquared < 0) rSquared = 0;
-  if (rSquared > 1) rSquared = 1;
-  foldResults.push({ rmse, rSquared, samples: train.length });
+    let rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
+    // Clamp R2 to [0, 1] for reliability
+    if (rSquared < 0 || isNaN(rSquared)) rSquared = 0;
+    if (rSquared > 1) rSquared = 1;
+    foldResults.push({ rmse, rSquared, samples: train.length });
   }
   // Average metrics
   const avgRmse = foldResults.reduce((sum, f) => sum + f.rmse, 0) / foldResults.length;
@@ -594,7 +595,7 @@ export async function trainELM(
     trainingTime: Date.now() - startTime,
     samples: data.length,
     rmse: avgRmse,
-    modelData: { inputWeights, biases, outputWeights },
+    weights: inputWeights.flat(),
     predict
   };
 }
@@ -607,7 +608,8 @@ function predictELM(input: number[], inputWeights: number[][], biases: number[],
     for (let j = 0; j < input.length; j++) {
       sum += input[j] * inputWeights[i][j];
     }
-    let activation = 1 / (1 + Math.exp(-sum));
+    // Use tanh activation for better stability
+    let activation = Math.tanh(sum);
     if (isNaN(activation) || !isFinite(activation)) activation = 0;
     hiddenOutput.push(activation);
   }
