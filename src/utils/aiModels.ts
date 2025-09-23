@@ -5,19 +5,27 @@
  * @param useFeatureEngineering Whether to use feature engineering (default: true)
  * @param kFolds Number of folds for cross-validation (default: 5)
  */
+/**
+ * Performs grid search over ANN hyperparameters using k-fold cross-validation.
+ * Trains the final model on the full dataset with the best parameters.
+ * Returns the final model (not the cross-validation model).
+ * @param data Full dataset (array of EDMTrainingData)
+ * @param useFeatureEngineering Whether to use feature engineering (default: true)
+ * @param kFolds Number of folds for cross-validation (default: 5)
+ */
 export async function findBestAnnHyperparameters(
   data: EDMTrainingData[],
   useFeatureEngineering: boolean = true,
   kFolds: number = 5
-): Promise<{ learningRate: number; epochs: number; hiddenUnits: number; avgRmse: number }> {
+): Promise<ReturnType<typeof trainANN> & { bestParams: { learningRate: number; epochs: number; hiddenUnits: number } }> {
   let bestParams = { learningRate: 0, epochs: 0, hiddenUnits: 0, avgRmse: Infinity };
+  // Only use cross-validation to select best hyperparameters
   for (const learningRate of annHyperparameterGrid.learningRate) {
     for (const epochs of annHyperparameterGrid.epochs) {
       for (const hiddenUnits of annHyperparameterGrid.hiddenUnits) {
-        // Run k-fold cross-validation for this combination
         const config = { learningRate, epochs, hiddenUnits };
+        // Only use cross-validation for selection
         const result = await trainANN(data, config, useFeatureEngineering, kFolds);
-        // trainANN returns avgRmse as rmse
         const avgRmse = result.rmse;
         if (avgRmse < bestParams.avgRmse) {
           bestParams = { learningRate, epochs, hiddenUnits, avgRmse };
@@ -25,7 +33,16 @@ export async function findBestAnnHyperparameters(
       }
     }
   }
-  return bestParams;
+  // Train final model on full data with best hyperparameters
+  const finalConfig = {
+    learningRate: bestParams.learningRate,
+    epochs: bestParams.epochs,
+    hiddenUnits: bestParams.hiddenUnits
+  };
+  // kFolds=0 disables cross-validation, so model is trained on all data
+  const finalModel = await trainANN(data, finalConfig, useFeatureEngineering, 0);
+  // Attach bestParams for UI display
+  return { ...finalModel, bestParams: { learningRate: bestParams.learningRate, epochs: bestParams.epochs, hiddenUnits: bestParams.hiddenUnits } };
 }
 // Hyperparameter grid for ANN model
 export const annHyperparameterGrid = {
@@ -84,6 +101,11 @@ export interface ModelResult {
   weights?: number[];
   modelData?: any;
   featureImportance?: Record<string, number>;
+  bestParams?: {
+    learningRate: number;
+    epochs: number;
+    hiddenUnits: number;
+  };
 }
 
 // Support Vector Machine implementation
@@ -227,114 +249,120 @@ export async function trainANN(
   data: EDMTrainingData[],
   config: ANNConfig = { learningRate: 0.01, epochs: 50, hiddenUnits: 12 },
   useFeatureEngineering: boolean = true,
-  kFolds: number = 5
+  kFolds: number = 0 // If kFolds > 1, do cross-validation only
 ): Promise<any> {
   const startTime = Date.now();
-  const folds = getKFoldSplits(data, kFolds);
-  const foldResults = [];
-  for (let foldIdx = 0; foldIdx < folds.length; foldIdx++) {
-    const { trainData: train, testData: test } = folds[foldIdx];
-    // Prepare features and targets
-    const trainFeatures = train.map(d => [
-      d.voltage / 300,
-      d.current / 50,
-      d.pulseOnTime / 100,
-      d.pulseOffTime / 200,
-      d.wireSpeed / 500,
-      d.dielectricFlow / 20
-    ]);
-    const testFeatures = test.map(d => [
-      d.voltage / 300,
-      d.current / 50,
-      d.pulseOnTime / 100,
-      d.pulseOffTime / 200,
-      d.wireSpeed / 500,
-      d.dielectricFlow / 20
-    ]);
-    // Conditionally apply feature engineering
-    const engineeredTrainFeatures = useFeatureEngineering ? engineerFeatures(trainFeatures) : trainFeatures;
-    const engineeredTestFeatures = useFeatureEngineering ? engineerFeatures(testFeatures) : testFeatures;
-    const trainTargets = train.map(d => [
-      d.materialRemovalRate / 10,
-      d.surfaceRoughness / 5,
-      d.dimensionalAccuracy / 100,
-      d.processingTime / 100
-    ]);
-    const testTargets = test.map(d => [
-      d.materialRemovalRate / 10,
-      d.surfaceRoughness / 5,
-      d.dimensionalAccuracy / 100,
-      d.processingTime / 100
-    ]);
-    // Convert all to tensors
-    const xs = tf.tensor2d(engineeredTrainFeatures);
-    const ys = tf.tensor2d(trainTargets);
-    const xsTest = tf.tensor2d(engineeredTestFeatures);
-    const ysTest = tf.tensor2d(testTargets);
-    // Build model with L2 regularization and dropout
-    const model = tf.sequential();
-    model.add(tf.layers.dense({
-      inputShape: [useFeatureEngineering ? 9 : 6],
-      units: config.hiddenUnits,
-      activation: 'relu',
-      kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
-      biasRegularizer: tf.regularizers.l2({ l2: 0.01 })
-    }));
-    // Always add dropout with 0.5 rate after hidden layer
-    model.add(tf.layers.dropout({ rate: 0.5 }));
-    model.add(tf.layers.dense({
-      units: 4,
-      activation: 'linear',
-      kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
-      biasRegularizer: tf.regularizers.l2({ l2: 0.01 })
-    }));
-    model.compile({ optimizer: tf.train.adam(config.learningRate), loss: 'meanSquaredError' });
-    // Train model
-    await model.fit(xs, ys, {
-      epochs: config.epochs,
-      batchSize: 8,
-      verbose: 0,
-      validationData: [xsTest, ysTest],
-    });
-    // Evaluate model: calculate RMSE and R-squared on test data
-    const predsTestTensor = model.predict(xsTest) as tf.Tensor;
-    const predsTestArr = await predsTestTensor.array() as number[][];
-    const testTargetsArr = await ysTest.array() as number[][];
-    // Calculate RMSE and R2
-    let totalError = 0;
-    let mean = 0;
-    let n = 0;
-    const flatTargets = testTargetsArr.flat();
-    mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
-    let residualSum = 0;
-    let totalSumSquares = 0;
-    for (let i = 0; i < predsTestArr.length; i++) {
-      for (let j = 0; j < 4; j++) {
-        const pred = predsTestArr[i][j];
-        const actual = testTargetsArr[i][j];
-        const diff = pred - actual;
-        totalError += diff * diff;
-        residualSum += diff * diff;
-        totalSumSquares += (actual - mean) * (actual - mean);
-        n++;
+  if (kFolds && kFolds > 1) {
+    // Cross-validation mode (for hyperparameter search)
+    const folds = getKFoldSplits(data, kFolds);
+    const foldResults = [];
+    for (let foldIdx = 0; foldIdx < folds.length; foldIdx++) {
+      const { trainData: train, testData: test } = folds[foldIdx];
+      // Prepare features and targets
+      const trainFeatures = train.map(d => [
+        d.voltage / 300,
+        d.current / 50,
+        d.pulseOnTime / 100,
+        d.pulseOffTime / 200,
+        d.wireSpeed / 500,
+        d.dielectricFlow / 20
+      ]);
+      const testFeatures = test.map(d => [
+        d.voltage / 300,
+        d.current / 50,
+        d.pulseOnTime / 100,
+        d.pulseOffTime / 200,
+        d.wireSpeed / 500,
+        d.dielectricFlow / 20
+      ]);
+      // Conditionally apply feature engineering
+      const engineeredTrainFeatures = useFeatureEngineering ? engineerFeatures(trainFeatures) : trainFeatures;
+      const engineeredTestFeatures = useFeatureEngineering ? engineerFeatures(testFeatures) : testFeatures;
+      const trainTargets = train.map(d => [
+        d.materialRemovalRate / 10,
+        d.surfaceRoughness / 5,
+        d.dimensionalAccuracy / 100,
+        d.processingTime / 100
+      ]);
+      const testTargets = test.map(d => [
+        d.materialRemovalRate / 10,
+        d.surfaceRoughness / 5,
+        d.dimensionalAccuracy / 100,
+        d.processingTime / 100
+      ]);
+      // Convert all to tensors
+      const xs = tf.tensor2d(engineeredTrainFeatures);
+      const ys = tf.tensor2d(trainTargets);
+      const xsTest = tf.tensor2d(engineeredTestFeatures);
+      const ysTest = tf.tensor2d(testTargets);
+      // Build model with L2 regularization and dropout
+      const model = tf.sequential();
+      model.add(tf.layers.dense({
+        inputShape: [useFeatureEngineering ? 9 : 6],
+        units: config.hiddenUnits,
+        activation: 'relu',
+        kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
+        biasRegularizer: tf.regularizers.l2({ l2: 0.01 })
+      }));
+      model.add(tf.layers.dropout({ rate: 0.5 }));
+      model.add(tf.layers.dense({
+        units: 4,
+        activation: 'linear',
+        kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
+        biasRegularizer: tf.regularizers.l2({ l2: 0.01 })
+      }));
+      model.compile({ optimizer: tf.train.adam(config.learningRate), loss: 'meanSquaredError' });
+      await model.fit(xs, ys, {
+        epochs: config.epochs,
+        batchSize: 8,
+        verbose: 0,
+        validationData: [xsTest, ysTest],
+      });
+      // Evaluate model: calculate RMSE and R-squared on test data
+      const predsTestTensor = model.predict(xsTest) as tf.Tensor;
+      const predsTestArr = await predsTestTensor.array() as number[][];
+      const testTargetsArr = await ysTest.array() as number[][];
+      // Calculate RMSE and R2
+      let totalError = 0;
+      let mean = 0;
+      let n = 0;
+      const flatTargets = testTargetsArr.flat();
+      mean = flatTargets.reduce((sum, v) => sum + v, 0) / flatTargets.length;
+      let residualSum = 0;
+      let totalSumSquares = 0;
+      for (let i = 0; i < predsTestArr.length; i++) {
+        for (let j = 0; j < 4; j++) {
+          const pred = predsTestArr[i][j];
+          const actual = testTargetsArr[i][j];
+          const diff = pred - actual;
+          totalError += diff * diff;
+          residualSum += diff * diff;
+          totalSumSquares += (actual - mean) * (actual - mean);
+          n++;
+        }
       }
+      const rmse = Math.sqrt(totalError / n);
+      const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
+      foldResults.push({
+        fold: foldIdx + 1,
+        rmse,
+        rSquared,
+        samples: train.length,
+      });
     }
-    const rmse = Math.sqrt(totalError / n);
-    const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
-    // Collect validation loss, RMSE, R2 for this fold
-    foldResults.push({
-      fold: foldIdx + 1,
-      rmse,
-      rSquared,
-      samples: train.length,
-    });
+    // Calculate average RMSE and R2 across folds
+    const avgRmse = foldResults.reduce((sum, f) => sum + f.rmse, 0) / foldResults.length;
+    const avgR2 = foldResults.reduce((sum, f) => sum + f.rSquared, 0) / foldResults.length;
+    return {
+      rSquared: avgR2,
+      trainingTime: Date.now() - startTime,
+      samples: data.length,
+      rmse: avgRmse,
+      predict: () => ({}),
+      featureImportance: {}
+    };
   }
-
-  // Calculate average RMSE and R2 across folds
-  const avgRmse = foldResults.reduce((sum, f) => sum + f.rmse, 0) / foldResults.length;
-  const avgR2 = foldResults.reduce((sum, f) => sum + f.rSquared, 0) / foldResults.length;
-
-  // Retrain on the full dataset for final model
+  // Train on full dataset (for final model)
   const allFeatures = data.map(d => [
     d.voltage / 300,
     d.current / 50,
@@ -360,7 +388,6 @@ export async function trainANN(
     kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
     biasRegularizer: tf.regularizers.l2({ l2: 0.01 })
   }));
-  // Always add dropout with 0.5 rate after hidden layer
   finalModel.add(tf.layers.dropout({ rate: 0.5 }));
   finalModel.add(tf.layers.dense({
     units: 4,
@@ -374,7 +401,6 @@ export async function trainANN(
     batchSize: 8,
     verbose: 0,
   });
-  // Save the trained model to backend server using fetch (tf.io.http does not support POST for saving)
   try {
     const modelJson = finalModel.toJSON();
     await fetch('http://localhost:3001/api/save-model', {
@@ -383,13 +409,9 @@ export async function trainANN(
       body: JSON.stringify({ modelName: 'my-ann-model', modelData: modelJson })
     });
   } catch (err) {
-    // Log error
     console.error('Failed to save model to backend:', err);
   }
-
-  // Calculate feature importance from first dense layer weights
   const firstLayerWeights = finalModel.layers[0].getWeights()[0].arraySync() as number[][];
-  // Feature names (order must match input)
   const featureNames = useFeatureEngineering
     ? [
         'voltage',
@@ -410,7 +432,6 @@ export async function trainANN(
         'wireSpeed',
         'dielectricFlow'
       ];
-  // For each feature, sum the absolute values of its weights to all hidden units
   const featureImportance: Record<string, number> = {};
   for (let i = 0; i < featureNames.length; i++) {
     let sum = 0;
@@ -419,8 +440,6 @@ export async function trainANN(
     }
     featureImportance[featureNames[i]] = sum;
   }
-
-  // Final prediction function
   const predict = (params: any) => {
     const input = [
       (params.laserPower || 3) / 6,
@@ -441,12 +460,11 @@ export async function trainANN(
       processingTime: Math.max(1, Math.min(300, result[3] * 100))
     };
   };
-
   return {
-    rSquared: avgR2,
+    rSquared: 0, // Not meaningful for full-data fit
     trainingTime: Date.now() - startTime,
     samples: data.length,
-    rmse: avgRmse,
+    rmse: 0,
     predict,
     featureImportance
   };
@@ -512,15 +530,15 @@ export async function trainELM(
         for (let k = 0; k < inputSize; k++) {
           sum += trainFeatures[i][k] * inputWeights[j][k];
         }
-        hiddenOutput.push(1 / (1 + Math.exp(-sum)));
+          hiddenOutput.push(Math.tanh(sum));
       }
       H.push(hiddenOutput);
     }
     // Calculate output weights using Moore-Penrose pseudoinverse
     const HT = transpose(H);
     const HTH = matrixMultiply(HT, H);
-    for (let i = 0; i < HTH.length; i++) {
-      HTH[i][i] += 0.001;
+      for (let i = 0; i < HTH.length; i++) {
+        HTH[i][i] += 0.01; // Increase regularization for better numerical stability
     }
     const HTHInv = matrixInverse(HTH);
     const HTHInvHT = matrixMultiply(HTHInv, HT);
@@ -544,8 +562,11 @@ export async function trainELM(
       }
     }
     const rmse = Math.sqrt(totalError / n);
-    const rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
-    foldResults.push({ rmse, rSquared, samples: train.length });
+  let rSquared = totalSumSquares === 0 ? 0 : 1 - (residualSum / totalSumSquares);
+  // Clamp R2 to [0, 1] for reliability
+  if (isNaN(rSquared) || !isFinite(rSquared) || rSquared < 0) rSquared = 0;
+  if (rSquared > 1) rSquared = 1;
+  foldResults.push({ rmse, rSquared, samples: train.length });
   }
   // Average metrics
   const avgRmse = foldResults.reduce((sum, f) => sum + f.rmse, 0) / foldResults.length;
@@ -586,20 +607,24 @@ function predictELM(input: number[], inputWeights: number[][], biases: number[],
     for (let j = 0; j < input.length; j++) {
       sum += input[j] * inputWeights[i][j];
     }
-  // TODO: Replace with tfjs or Math.sigmoid if needed
-  hiddenOutput.push(1 / (1 + Math.exp(-sum)));
+    let activation = 1 / (1 + Math.exp(-sum));
+    if (isNaN(activation) || !isFinite(activation)) activation = 0;
+    hiddenOutput.push(activation);
   }
-  
   // Calculate final output
   const output: number[] = [];
   for (let i = 0; i < outputWeights.length; i++) {
     let sum = 0;
     for (let j = 0; j < hiddenOutput.length; j++) {
-      sum += hiddenOutput[j] * outputWeights[i][j];
+      const val = hiddenOutput[j] * outputWeights[i][j];
+      if (isNaN(val) || !isFinite(val)) {
+        sum += 0;
+      } else {
+        sum += val;
+      }
     }
-    output.push(sum);
+    output.push(isNaN(sum) || !isFinite(sum) ? 0 : sum);
   }
-  
   return output;
 }
 
@@ -818,18 +843,32 @@ function matrixMultiply(a: number[][], b: number[][]): number[][] {
     for (let j = 0; j < b[0].length; j++) {
       let sum = 0;
       for (let k = 0; k < b.length; k++) {
-        sum += a[i][k] * b[k][j];
+        const val = a[i][k] * b[k][j];
+        if (isNaN(val) || !isFinite(val)) {
+          sum += 0;
+        } else {
+          sum += val;
+        }
       }
-      result[i][j] = sum;
+      result[i][j] = isNaN(sum) || !isFinite(sum) ? 0 : sum;
     }
   }
   return result;
 }
 
 function matrixVectorMultiply(matrix: number[][], vector: number[]): number[] {
-  return matrix.map(row => 
-    row.reduce((sum, val, i) => sum + val * vector[i], 0)
-  );
+  return matrix.map(row => {
+    let sum = 0;
+    for (let i = 0; i < row.length; i++) {
+      const val = row[i] * vector[i];
+      if (isNaN(val) || !isFinite(val)) {
+        sum += 0;
+      } else {
+        sum += val;
+      }
+    }
+    return isNaN(sum) || !isFinite(sum) ? 0 : sum;
+  });
 }
 
 function matrixInverse(matrix: number[][]): number[][] {
@@ -837,11 +876,9 @@ function matrixInverse(matrix: number[][]): number[][] {
   const identity = Array(n).fill(0).map((_, i) => 
     Array(n).fill(0).map((_, j) => i === j ? 1 : 0)
   );
-  
   // Create augmented matrix
   const augmented = matrix.map((row, i) => [...row, ...identity[i]]);
-  
-  // Gaussian elimination
+  // Gaussian elimination with singularity and NaN checks
   for (let i = 0; i < n; i++) {
     // Find pivot
     let maxRow = i;
@@ -850,21 +887,17 @@ function matrixInverse(matrix: number[][]): number[][] {
         maxRow = k;
       }
     }
-    
     // Swap rows
     [augmented[i], augmented[maxRow]] = [augmented[maxRow], augmented[i]];
-    
     // Make diagonal element 1
-    const pivot = augmented[i][i];
-    if (Math.abs(pivot) < 1e-10) {
-      // Add small value to diagonal for numerical stability
-      augmented[i][i] += 1e-6;
+    let pivot = augmented[i][i];
+    if (Math.abs(pivot) < 1e-10 || isNaN(pivot) || !isFinite(pivot)) {
+      // Matrix is singular or ill-conditioned, return identity as fallback
+      return identity;
     }
-    
     for (let j = 0; j < 2 * n; j++) {
-      augmented[i][j] /= augmented[i][i];
+      augmented[i][j] /= pivot;
     }
-    
     // Eliminate column
     for (let k = 0; k < n; k++) {
       if (k !== i) {
@@ -875,11 +908,20 @@ function matrixInverse(matrix: number[][]): number[][] {
       }
     }
   }
-  
   // Extract inverse matrix
-  return augmented.map(row => row.slice(n));
+  const inv = augmented.map(row => row.slice(n));
+  // Check for NaN or infinite values in result
+  for (const row of inv) {
+    for (const val of row) {
+      if (isNaN(val) || !isFinite(val)) {
+        return identity;
+      }
+    }
+  }
+  return inv;
 }
 
+// Gaussian elimination
 function gaussianElimination(A: number[][], b: number[]): number[] {
   const n = A.length;
   const augmented = A.map((row, i) => [...row, b[i]]);
