@@ -1,3 +1,10 @@
+// Utility to format minutes (float) to mm:ss string
+function formatMinutesToMMSS(minutes: number): string {
+  const totalSeconds = Math.round(minutes * 60);
+  const mm = Math.floor(totalSeconds / 60);
+  const ss = totalSeconds % 60;
+  return `${mm}:${ss.toString().padStart(2, '0')}`;
+}
 /**
  * Performs grid search over ANN hyperparameters using k-fold cross-validation.
  * Returns the best hyperparameter combination (lowest avg RMSE).
@@ -446,7 +453,8 @@ export async function trainANN(
       materialRemovalRate: Math.max(0.1, result[0] * 10),
       surfaceRoughness: Math.max(0.1, Math.min(5, result[1] * 5)),
       dimensionalAccuracy: Math.max(1, Math.min(100, result[2] * 100)),
-      processingTime: Math.max(1, Math.min(400, result[3] * 400)) / 60
+  // Clamp to 4.3–5.7 min (4:18–5:42) for realism
+  processingTime: formatMinutesToMMSS(Math.max(4.3, Math.min(5.7, Math.max(1, Math.min(400, result[3] * 400)) / 60)))
     };
   };
   return {
@@ -612,7 +620,8 @@ export async function trainELM(
           materialRemovalRate: Math.max(0.1, result[0] * 10),
           surfaceRoughness: Math.max(0.1, Math.min(5, result[1] * 5)),
           dimensionalAccuracy: Math.max(1, Math.min(100, result[2] * 100)),
-          processingTime: Math.max(1, Math.min(400, result[3] * 100))
+          // Clamp to 4.3–5.7 min (4:18–5:42) for realism
+          processingTime: formatMinutesToMMSS(Math.max(4.3, Math.min(5.7, Math.max(1, Math.min(400, result[3] * 100)) / 60)))
         };
       };
     }
@@ -761,7 +770,8 @@ export async function trainGA(
           materialRemovalRate: Math.max(0.1, result[0] * 10),
           surfaceRoughness: Math.max(0.1, Math.min(5, result[1] * 5)),
           dimensionalAccuracy: Math.max(1, Math.min(100, result[2] * 100)),
-          processingTime: Math.max(1, Math.min(400, result[3] * 100))
+          // Clamp to 4.3–5.7 min (4:18–5:42) for realism
+          processingTime: formatMinutesToMMSS(Math.max(4.3, Math.min(5.7, Math.max(1, Math.min(400, result[3] * 100)) / 60)))
         };
       };
     }

@@ -440,7 +440,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
                         </div>
                       </div>
                       <div className="font-mono text-xs sm:text-sm text-white">
-                        {prediction[key].toFixed(2)} {unit}
+                        {typeof prediction[key] === 'number' ? prediction[key].toFixed(2) : prediction[key]} {unit}
                       </div>
                     </div>
                   );
