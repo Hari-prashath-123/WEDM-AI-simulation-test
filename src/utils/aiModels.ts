@@ -63,16 +63,16 @@ export async function loadANNModel() {
 }
 /**
  * Expands each feature array with engineered features:
- * 1. Interaction term: voltage * current
- * 2. Power density: voltage / pulseOnTime
+ * 1. Interaction term: pulseOnTime * current
+ * 2. Power density: current / pulseOnTime
  * 3. Duty cycle: pulseOnTime / (pulseOnTime + pulseOffTime)
- * Assumes input order: [voltage, current, pulseOnTime, pulseOffTime, wireSpeed, dielectricFlow]
+ * Assumes input order: [pulseOnTime, pulseOffTime, current, materialIndex]
  */
 export function engineerFeatures(inputs: number[][]): number[][] {
   return inputs.map(sample => {
-    const [voltage, current, pulseOnTime, pulseOffTime] = sample;
-    const interaction = voltage * current;
-    const powerDensity = pulseOnTime !== 0 ? voltage / pulseOnTime : 0;
+    const [pulseOnTime, pulseOffTime, current, materialIndex] = sample;
+    const interaction = pulseOnTime * current;
+    const powerDensity = pulseOnTime !== 0 ? current / pulseOnTime : 0;
     const dutyCycle = (pulseOnTime + pulseOffTime) !== 0 ? pulseOnTime / (pulseOnTime + pulseOffTime) : 0;
     return [...sample, interaction, powerDensity, dutyCycle];
   });
@@ -264,17 +264,13 @@ export async function trainANN(
         d.pulseOnTime / 100,
         d.pulseOffTime / 200,
         d.current / 50,
-        d.processingTime / 400,
-        typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0,
-        0
+        typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0
       ]);
       const testFeatures = test.map(d => [
         d.pulseOnTime / 100,
         d.pulseOffTime / 200,
         d.current / 50,
-        d.processingTime / 400,
-        typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0,
-        0
+        typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0
       ]);
       // Conditionally apply feature engineering
       const engineeredTrainFeatures = useFeatureEngineering ? engineerFeatures(trainFeatures) : trainFeatures;
@@ -283,13 +279,13 @@ export async function trainANN(
         d.materialRemovalRate / 10,
         d.surfaceRoughness / 5,
         d.dimensionalAccuracy / 100,
-        d.processingTime / 100
+        d.processingTime / 400
       ]);
       const testTargets = test.map(d => [
         d.materialRemovalRate / 10,
         d.surfaceRoughness / 5,
         d.dimensionalAccuracy / 100,
-        d.processingTime / 100
+        d.processingTime / 400
       ]);
       // Convert all to tensors
       const xs = tf.tensor2d(engineeredTrainFeatures);
@@ -299,7 +295,7 @@ export async function trainANN(
       // Build model with L2 regularization and dropout
       const model = tf.sequential();
       model.add(tf.layers.dense({
-        inputShape: [useFeatureEngineering ? 9 : 6],
+        inputShape: [useFeatureEngineering ? 7 : 4],
         units: config.hiddenUnits,
         activation: 'relu',
         kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
@@ -365,25 +361,23 @@ export async function trainANN(
   }
   // Train on full dataset (for final model)
   const allFeatures = data.map(d => [
-    d.voltage / 300,
-    d.current / 50,
     d.pulseOnTime / 100,
     d.pulseOffTime / 200,
-    d.wireSpeed / 500,
-    d.dielectricFlow / 20
+    d.current / 50,
+    typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0
   ]);
   const engineeredAllFeatures = useFeatureEngineering ? engineerFeatures(allFeatures) : allFeatures;
   const allTargets = data.map(d => [
     d.materialRemovalRate / 10,
     d.surfaceRoughness / 5,
     d.dimensionalAccuracy / 100,
-    d.processingTime / 100
+    d.processingTime / 400
   ]);
   const xsAll = tf.tensor2d(engineeredAllFeatures);
   const ysAll = tf.tensor2d(allTargets);
   const finalModel = tf.sequential();
   finalModel.add(tf.layers.dense({
-    inputShape: [useFeatureEngineering ? 9 : 6],
+    inputShape: [useFeatureEngineering ? 7 : 4],
     units: config.hiddenUnits,
     activation: 'relu',
     kernelRegularizer: tf.regularizers.l2({ l2: 0.01 }),
@@ -415,23 +409,19 @@ export async function trainANN(
   const firstLayerWeights = finalModel.layers[0].getWeights()[0].arraySync() as number[][];
   const featureNames = useFeatureEngineering
     ? [
-        'voltage',
-        'current',
         'pulseOnTime',
         'pulseOffTime',
-        'wireSpeed',
-        'dielectricFlow',
+        'current',
+        'materialIndex',
         'interaction',
         'powerDensity',
         'dutyCycle'
       ]
     : [
-        'voltage',
-        'current',
         'pulseOnTime',
         'pulseOffTime',
-        'wireSpeed',
-        'dielectricFlow'
+        'current',
+        'materialIndex'
       ];
   const featureImportance: Record<string, number> = {};
   for (let i = 0; i < featureNames.length; i++) {
@@ -446,19 +436,17 @@ export async function trainANN(
       (params.pulseOnTime || 50) / 100,
       (params.pulseOffTime || 100) / 200,
       (params.current || 10) / 50,
-      (params.processingTime || 200) / 400,
-      typeof params.materialIndex === 'number' ? params.materialIndex / 6 : 0,
-      0
+      typeof params.materialIndex === 'number' ? params.materialIndex / 6 : 0
     ];
-    const engineeredInput = engineerFeatures([input])[0];
-    const inputTensor = tf.tensor2d([engineeredInput], [1, 9]);
+    const engineeredInput = useFeatureEngineering ? engineerFeatures([input])[0] : input;
+    const inputTensor = tf.tensor2d([engineeredInput], [1, engineeredInput.length]);
     const outputTensor = finalModel.predict(inputTensor) as tf.Tensor;
     const result = outputTensor.dataSync();
     return {
-      materialRemovalRate: Math.max(0.1, result[0]),
-      surfaceRoughness: Math.max(0.1, Math.min(5, result[1])),
-      dimensionalAccuracy: Math.max(1, Math.min(100, result[2])),
-      processingTime: Math.max(1, Math.min(400, result[3] * 400))
+      materialRemovalRate: Math.max(0.1, result[0] * 10),
+      surfaceRoughness: Math.max(0.1, Math.min(5, result[1] * 5)),
+      dimensionalAccuracy: Math.max(1, Math.min(100, result[2] * 100)),
+      processingTime: Math.max(1, Math.min(400, result[3] * 400)) / 60
     };
   };
   return {
