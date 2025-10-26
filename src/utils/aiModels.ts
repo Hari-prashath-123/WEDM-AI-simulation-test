@@ -111,7 +111,7 @@ export interface ModelResult {
 // Support Vector Machine implementation
 export async function trainSVM(
   data: EDMTrainingData[],
-  kFolds: number = 5
+  kFolds: number = 3
 ): Promise<ModelResult> {
   const startTime = Date.now();
   const folds = getKFoldSplits(data, kFolds);
@@ -186,8 +186,8 @@ export async function trainSVM(
       (params.pulseOnTime || 50) / 100,
       (params.pulseOffTime || 100) / 200,
       (params.current || 10) / 50,
-      (params.processingTime || 200) / 400,
       typeof params.materialIndex === 'number' ? params.materialIndex / 6 : 0,
+      0,
       0
     ];
     const result = predictSVM(input, weights);
@@ -195,7 +195,7 @@ export async function trainSVM(
       materialRemovalRate: Math.max(0.1, result[0]),
       surfaceRoughness: Math.max(0.1, Math.min(5, result[1])),
       dimensionalAccuracy: Math.max(1, Math.min(100, result[2])),
-      processingTime: Math.max(1, Math.min(400, result[3] * 400))
+      processingTime: Math.max(1, Math.min(400, result[3] * 100))
     };
   };
   return {

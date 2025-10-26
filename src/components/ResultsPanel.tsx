@@ -133,7 +133,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
     },
     { 
       key: 'processingTime', 
-      label: 'Processing Time', 
+      label: 'Predicted Cutting Time', 
       unit: 'min', 
       icon: Clock, 
       color: 'text-orange-400',

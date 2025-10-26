@@ -396,7 +396,7 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
         )}
         {!useUploadedData && useRealDataset && (
           <span className="text-xs block mt-1">
-            Using built-in laser cutting dataset (78 samples)
+            Trained with Wire EDM Aluminum Data
           </span>
         )}
         {!useUploadedData && !useRealDataset && (
