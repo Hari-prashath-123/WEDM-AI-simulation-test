@@ -43,6 +43,8 @@ export async function findBestAnnHyperparameters(
   const finalModel = await trainANN(data, finalConfig, useFeatureEngineering, 0);
   // Attach bestParams for UI display
     return { ...finalModel, bestParams: { learningRate: bestParams.learningRate, epochs: bestParams.epochs, hiddenUnits: bestParams.hiddenUnits } };
+}
+
 // Hyperparameter grid for ANN model
 export const annHyperparameterGrid = {
   learningRate: [0.1, 0.01, 0.001],
@@ -58,7 +60,7 @@ export async function loadANNModel() {
     console.log('No saved model found');
     return null;
   }
-// Removed extra closing brace at end of file
+}
 /**
  * Expands each feature array with engineered features:
  * 1. Interaction term: voltage * current
@@ -787,6 +789,7 @@ export async function trainGA(
     weights: bestChromosome,
     predict: bestPredict
   };
+}
 
 function evaluateFitness(chromosome: number[], inputs: number[][], targets: number[][]): number {
   let totalError = 0;
@@ -864,136 +867,6 @@ function mutate(chromosome: number[], mutationRate: number): number[] {
   });
 }
 
-// Utility functions for matrix operations
-function transpose(matrix: number[][]): number[][] {
-  return matrix[0].map((_, colIndex) => matrix.map(row => row[colIndex]));
-}
-
-function matrixMultiply(a: number[][], b: number[][]): number[][] {
-  const result: number[][] = [];
-  for (let i = 0; i < a.length; i++) {
-    result[i] = [];
-    for (let j = 0; j < b[0].length; j++) {
-      let sum = 0;
-      for (let k = 0; k < b.length; k++) {
-        const val = a[i][k] * b[k][j];
-        if (isNaN(val) || !isFinite(val)) {
-          sum += 0;
-        } else {
-          sum += val;
-        }
-      }
-      result[i][j] = isNaN(sum) || !isFinite(sum) ? 0 : sum;
-    }
-  }
-  return result;
-}
-
-function matrixVectorMultiply(matrix: number[][], vector: number[]): number[] {
-  return matrix.map(row => {
-    let sum = 0;
-    for (let i = 0; i < row.length; i++) {
-      const val = row[i] * vector[i];
-      if (isNaN(val) || !isFinite(val)) {
-        sum += 0;
-      } else {
-        sum += val;
-      }
-    }
-    return isNaN(sum) || !isFinite(sum) ? 0 : sum;
-  });
-}
-
-function matrixInverse(matrix: number[][]): number[][] {
-  const n = matrix.length;
-  const identity = Array(n).fill(0).map((_, i) => 
-    Array(n).fill(0).map((_, j) => i === j ? 1 : 0)
-  );
-  // Create augmented matrix
-  const augmented = matrix.map((row, i) => [...row, ...identity[i]]);
-  // Gaussian elimination with singularity and NaN checks
-  for (let i = 0; i < n; i++) {
-    // Find pivot
-    let maxRow = i;
-    for (let k = i + 1; k < n; k++) {
-      if (Math.abs(augmented[k][i]) > Math.abs(augmented[maxRow][i])) {
-        maxRow = k;
-      }
-    }
-    // Swap rows
-    [augmented[i], augmented[maxRow]] = [augmented[maxRow], augmented[i]];
-    // Make diagonal element 1
-    let pivot = augmented[i][i];
-    if (Math.abs(pivot) < 1e-10 || isNaN(pivot) || !isFinite(pivot)) {
-      // Matrix is singular or ill-conditioned, return identity as fallback
-      return identity;
-    }
-    for (let j = 0; j < 2 * n; j++) {
-      augmented[i][j] /= pivot;
-    }
-    // Eliminate column
-    for (let k = 0; k < n; k++) {
-      if (k !== i) {
-        const factor = augmented[k][i];
-        for (let j = 0; j < 2 * n; j++) {
-          augmented[k][j] -= factor * augmented[i][j];
-        }
-      }
-    }
-  }
-  // Extract inverse matrix
-  const inv = augmented.map(row => row.slice(n));
-  // Check for NaN or infinite values in result
-  for (const row of inv) {
-    for (const val of row) {
-      if (isNaN(val) || !isFinite(val)) {
-        return identity;
-      }
-    }
-  }
-  return inv;
-}
-
-// Gaussian elimination
-function gaussianElimination(A: number[][], b: number[]): number[] {
-  const n = A.length;
-  const augmented = A.map((row, i) => [...row, b[i]]);
-  
-  // Forward elimination
-  for (let i = 0; i < n; i++) {
-    // Find pivot
-    let maxRow = i;
-    for (let k = i + 1; k < n; k++) {
-      if (Math.abs(augmented[k][i]) > Math.abs(augmented[maxRow][i])) {
-        maxRow = k;
-      }
-    }
-    
-    // Swap rows
-    [augmented[i], augmented[maxRow]] = [augmented[maxRow], augmented[i]];
-    
-    // Eliminate
-    for (let k = i + 1; k < n; k++) {
-      const factor = augmented[k][i] / augmented[i][i];
-      for (let j = i; j < n + 1; j++) {
-        augmented[k][j] -= factor * augmented[i][j];
-      }
-    }
-  }
-  
-  // Back substitution
-  const x = new Array(n);
-  for (let i = n - 1; i >= 0; i--) {
-    x[i] = augmented[i][n];
-    for (let j = i + 1; j < n; j++) {
-      x[i] -= augmented[i][j] * x[j];
-    }
-    x[i] /= augmented[i][i];
-  }
-  
-  return x;
-}
-
 // Generate synthetic data as fallback
 function generateSyntheticData(): EDMTrainingData[] {
   const data: EDMTrainingData[] = [];
@@ -1025,5 +898,4 @@ function generateSyntheticData(): EDMTrainingData[] {
     });
   }
   return data;
-}
 }
