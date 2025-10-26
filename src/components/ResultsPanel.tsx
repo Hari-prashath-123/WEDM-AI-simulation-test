@@ -169,7 +169,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
     color: string;
     unit: string;
     height?: number;
-  }> = ({ data, label, color, unit, height = 60 }) => {
+  }> = ({ data, label, color, unit, height = 120 }) => {
     if (data.length === 0) return null;
     const max = Math.max(...data);
     const min = Math.min(...data);
@@ -180,48 +180,48 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
       return `${x},${y}`;
     }).join(' ');
     return (
-      <div className="bg-gray-700 p-3 rounded-lg">
+      <div className="bg-gray-700 p-4 rounded-lg">
         <div className="flex justify-between items-center mb-2">
-          <span className="text-sm font-medium text-white">{label}</span>
-          <span className="text-xs text-gray-400">
+          <span className="text-base font-medium text-white">{label}</span>
+          <span className="text-sm text-gray-400">
             {data[data.length - 1]?.toFixed(2)} {unit}
           </span>
         </div>
-        <svg width="100%" height={height + 32} style={{ paddingLeft: 28, overflow: 'visible' }}>
+        <svg width="100%" height={height + 60} style={{ paddingLeft: 40, overflow: 'visible' }}>
           {/* Y axis ticks and label */}
           {[0, 0.5, 1].map((t, i) => {
-            const y = height - t * height + 8;
+            const y = height - t * height + 20;
             const value = (min + t * (max - min)).toFixed(2);
             return (
               <g key={i}>
-                <line x1={32} y1={y} x2={132} y2={y} stroke="#374151" strokeDasharray="2,2" />
-                <text x={28} y={y + 4} fontSize="10" fill="#9ca3af" textAnchor="end">{value}</text>
+                <line x1={40} y1={y} x2="100%" y2={y} stroke="#374151" strokeDasharray="2,2" />
+                <text x={35} y={y + 4} fontSize="12" fill="#9ca3af" textAnchor="end">{value}</text>
               </g>
             );
           })}
           {/* X axis ticks and label */}
           {[0, Math.floor(data.length / 2), data.length - 1].map((idx, i) => {
-            const x = 32 + (idx / (data.length - 1)) * 100;
+            const x = 40 + (idx / (data.length - 1)) * (window.innerWidth > 768 ? 200 : 150);
             return (
               <g key={i}>
-                <line x1={x} y1={height + 8} x2={x} y2={height + 12} stroke="#9ca3af" />
-                <text x={x} y={height + 24} fontSize="10" fill="#9ca3af" textAnchor="middle">{idx}</text>
+                <line x1={x} y1={height + 20} x2={x} y2={height + 25} stroke="#9ca3af" />
+                <text x={x} y={height + 40} fontSize="12" fill="#9ca3af" textAnchor="middle">{idx}</text>
               </g>
             );
           })}
           {/* Y axis label */}
-          <text x={10} y={height / 2 + 8} fontSize="11" fill="#9ca3af" textAnchor="middle" transform={`rotate(-90 10,${height / 2 + 8})`}>{unit}</text>
+          <text x={15} y={height / 2 + 20} fontSize="13" fill="#9ca3af" textAnchor="middle" transform={`rotate(-90 15,${height / 2 + 20})`}>{unit}</text>
           {/* X axis label */}
-          <text x={82} y={height + 30} fontSize="11" fill="#9ca3af" textAnchor="middle">Time (s)</text>
+          <text x="50%" y={height + 55} fontSize="13" fill="#9ca3af" textAnchor="middle">Time (s)</text>
           <polyline
             points={data.map((value, index) => {
-              const x = 32 + (index / (data.length - 1)) * 100;
-              const y = height - ((value - min) / range) * height + 8;
+              const x = 40 + (index / (data.length - 1)) * (window.innerWidth > 768 ? 200 : 150);
+              const y = height - ((value - min) / range) * height + 20;
               return `${x},${y}`;
             }).join(' ')}
             fill="none"
             stroke={color}
-            strokeWidth="2"
+            strokeWidth="3"
             className="drop-shadow-sm"
           />
           <defs>
@@ -231,11 +231,11 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
             </linearGradient>
           </defs>
           <polygon
-            points={`32,${height + 8} ${data.map((value, index) => {
-              const x = 32 + (index / (data.length - 1)) * 100;
-              const y = height - ((value - min) / range) * height + 8;
+            points={`40,${height + 20} ${data.map((value, index) => {
+              const x = 40 + (index / (data.length - 1)) * (window.innerWidth > 768 ? 200 : 150);
+              const y = height - ((value - min) / range) * height + 20;
               return `${x},${y}`;
-            }).join(' ')} 132,${height + 8}`}
+            }).join(' ')} ${40 + (window.innerWidth > 768 ? 200 : 150)},${height + 20}`}
             fill={`url(#gradient-${label})`}
           />
         </svg>
@@ -250,16 +250,30 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
     change: string;
     icon: React.ComponentType<any>;
     color: string;
-  }> = ({ title, value, change, icon: Icon, color }) => (
-    <div className="bg-gray-700 p-4 rounded-lg border border-gray-600">
+  }> = ({ title, value, change, icon: Icon, color }) => {
+    // Extract unit from title for display
+    const getUnit = (title: string) => {
+      if (title.includes('Material Removal')) return 'mm³/min';
+      if (title.includes('Surface Quality')) return 'Ra';
+      if (title.includes('Efficiency')) return '%';
+      if (title.includes('Voltage')) return 'V';
+      if (title.includes('Pressure')) return 'PSI';
+      if (title.includes('Power')) return 'kW';
+      return '';
+    };
+    
+    return (
+    <div className="bg-gray-700 p-5 rounded-lg border border-gray-600">
       <div className="flex items-center justify-between mb-2">
-        <Icon className={`w-5 h-5 ${color}`} />
-        <span className="text-xs text-gray-400">{change}</span>
+        <Icon className={`w-6 h-6 ${color}`} />
+        <span className="text-sm text-gray-400">{change}</span>
       </div>
-      <div className="text-lg font-bold text-white">{value}</div>
+      <div className="text-2xl font-bold text-white mb-1">{value}</div>
+      <div className="text-xs text-gray-400 mb-1">{getUnit(title)}</div>
       <div className="text-sm text-gray-300">{title}</div>
     </div>
-  );
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -271,31 +285,31 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
         </h3>
 
         {/* Real-time Metrics Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <MetricCard
             title="Material Removal Rate"
-            value={`${processMetrics.materialRemovalRate.toFixed(2)} mm³/min`}
+            value={`${processMetrics.materialRemovalRate.toFixed(2)}`}
             change="+2.3%"
             icon={Activity}
             color="text-green-400"
           />
           <MetricCard
             title={methodLabels.powerLabel.split(' ')[0]}
-            value={`${processMetrics.powerConsumption.toFixed(1)} ${methodLabels.powerLabel.match(/\(([^)]+)\)/)?.[1] || 'kW'}`}
+            value={`${processMetrics.powerConsumption.toFixed(2)}`}
             change="-1.2%"
             icon={Zap}
             color="text-yellow-400"
           />
           <MetricCard
             title="Surface Quality"
-            value={`${processMetrics.surfaceQuality.toFixed(1)} Ra`}
+            value={`${processMetrics.surfaceQuality.toFixed(2)}`}
             change="+0.8%"
             icon={Layers}
             color="text-blue-400"
           />
           <MetricCard
             title="Process Efficiency"
-            value={`${processMetrics.efficiency.toFixed(1)}%`}
+            value={`${processMetrics.efficiency.toFixed(2)}`}
             change="+5.1%"
             icon={TrendingUp}
             color="text-purple-400"
@@ -304,30 +318,34 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
 
         {/* Real-time Charts */}
         {analyticsData.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <LineChart
               data={analyticsData.map((d: AnalyticsDataPoint) => d.materialRemovalRate)}
               label="Material Removal Rate"
               color="#10b981"
               unit="mm³/min"
+              height={150}
             />
             <LineChart
               data={analyticsData.map((d: AnalyticsDataPoint) => d.powerConsumption)}
               label="Power Consumption"
               color="#f59e0b"
               unit="kW"
+              height={150}
             />
             <LineChart
               data={analyticsData.map((d: AnalyticsDataPoint) => d.surfaceQuality)}
               label="Surface Quality"
               color="#3b82f6"
               unit="Ra"
+              height={150}
             />
             <LineChart
               data={analyticsData.map((d: AnalyticsDataPoint) => d.efficiency)}
               label="Process Efficiency"
               color="#8b5cf6"
               unit="%"
+              height={150}
             />
           </div>
         )}
