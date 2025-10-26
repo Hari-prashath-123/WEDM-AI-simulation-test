@@ -1,0 +1,1 @@
+export { trainGA } from './aiModels';
