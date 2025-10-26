@@ -125,7 +125,7 @@ export async function trainSVM(
       d.pulseOffTime / 200,
       d.current / 50,
       d.processingTime / 400,
-      0,
+      typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0,
       0
     ]);
     const trainTargets = train.map(d => [
@@ -139,7 +139,7 @@ export async function trainSVM(
       d.pulseOffTime / 200,
       d.current / 50,
       d.processingTime / 400,
-      0,
+      typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0,
       0
     ]);
     const testTargets = test.map(d => [
@@ -187,7 +187,7 @@ export async function trainSVM(
       (params.pulseOffTime || 100) / 200,
       (params.current || 10) / 50,
       (params.processingTime || 200) / 400,
-      0,
+      typeof params.materialIndex === 'number' ? params.materialIndex / 6 : 0,
       0
     ];
     const result = predictSVM(input, weights);
@@ -264,7 +264,7 @@ export async function trainANN(
         d.pulseOffTime / 200,
         d.current / 50,
         d.processingTime / 400,
-        0,
+        typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0,
         0
       ]);
       const testFeatures = test.map(d => [
@@ -272,7 +272,7 @@ export async function trainANN(
         d.pulseOffTime / 200,
         d.current / 50,
         d.processingTime / 400,
-        0,
+        typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0,
         0
       ]);
       // Conditionally apply feature engineering
@@ -446,7 +446,7 @@ export async function trainANN(
       (params.pulseOffTime || 100) / 200,
       (params.current || 10) / 50,
       (params.processingTime || 200) / 400,
-      0,
+      typeof params.materialIndex === 'number' ? params.materialIndex / 6 : 0,
       0
     ];
     const engineeredInput = engineerFeatures([input])[0];
@@ -498,7 +498,7 @@ export async function trainELM(
       d.current / 50,
       d.pulseOnTime / 100,
       d.pulseOffTime / 200,
-      d.wireSpeed / 500,
+      typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0,
       d.dielectricFlow / 20
     ]);
     const trainTargets = train.map(d => [
@@ -512,7 +512,7 @@ export async function trainELM(
       d.current / 50,
       d.pulseOnTime / 100,
       d.pulseOffTime / 200,
-      d.wireSpeed / 500,
+      typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0,
       d.dielectricFlow / 20
     ]);
     const testTargets = test.map(d => [
@@ -579,7 +579,7 @@ export async function trainELM(
       (params.pulseOffTime || 100) / 200,
       (params.current || 10) / 50,
       (params.processingTime || 200) / 400,
-      0,
+      typeof params.materialIndex === 'number' ? params.materialIndex / 6 : 0,
       0
     ];
     const result = predictELM(input, inputWeights, biases, outputWeights);
@@ -652,7 +652,7 @@ export async function trainGA(
       d.pulseOffTime / 200,
       d.current / 50,
       d.processingTime / 400,
-      0,
+      typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0,
       0
     ]);
     const trainTargets = train.map(d => [
@@ -666,7 +666,7 @@ export async function trainGA(
       d.pulseOffTime / 200,
       d.current / 50,
       d.processingTime / 400,
-      0,
+      typeof d.materialIndex === 'number' ? d.materialIndex / 6 : 0,
       0
     ]);
     const testTargets = test.map(d => [
@@ -747,7 +747,7 @@ export async function trainGA(
       (params.pulseOffTime || 100) / 200,
       (params.current || 10) / 50,
       (params.processingTime || 200) / 400,
-      0,
+      typeof params.materialIndex === 'number' ? params.materialIndex / 6 : 0,
       0
     ];
     const result = predictGA(input, bestChromosome);

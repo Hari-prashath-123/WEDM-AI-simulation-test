@@ -148,6 +148,7 @@ export interface EDMTrainingData {
   surfaceRoughness: number;
   dimensionalAccuracy: number;
   processingTime: number;
+  materialIndex?: number;
 }
 
 // Convert laser cutting data to EDM equivalent parameters
@@ -245,6 +246,7 @@ export async function loadEDMDataset(): Promise<{ trainData: EDMTrainingData[]; 
     }
     console.log(`Loaded ${wireData.length} wire EDM experimental records`);
     // Map to EDMTrainingData
+    const wireMaterials = ['Steel', 'Stainless Steel', 'Titanium', 'Aluminum', 'Copper', 'Carbide', 'Nickel'];
     const mapped: EDMTrainingData[] = wireData.map(row => {
       // Helper to parse range string (e.g., '1-45') to number (use first value or average)
       function parseRange(val: string): number {
@@ -254,6 +256,8 @@ export async function loadEDMDataset(): Promise<{ trainData: EDMTrainingData[]; 
         if (parts.length === 2) return (parts[0] + parts[1]) / 2;
         return 0;
       }
+      // No material info in wire EDM CSV, always use 'Steel'
+      const materialIndex = wireMaterials.indexOf('Steel');
       return {
         voltage: 0, // Not present, use 0
         current: parseRange(row.current),
@@ -265,6 +269,7 @@ export async function loadEDMDataset(): Promise<{ trainData: EDMTrainingData[]; 
         surfaceRoughness: 0, // Not present, use 0
         dimensionalAccuracy: 0, // Not present, use 0
         processingTime: row.timeSeconds,
+        materialIndex
       };
     });
     const { trainData, testData } = splitData(mapped);
@@ -394,7 +399,13 @@ export function generateAugmentedData(data: EDMTrainingData[], factor: number = 
     // Interpolate each numeric field
     const newPoint: EDMTrainingData = { ...a };
     for (const key of numericFields) {
-      newPoint[key] = a[key] * w + b[key] * (1 - w);
+      const aVal = a[key];
+      const bVal = b[key];
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        newPoint[key] = aVal * w + bVal * (1 - w);
+      } else {
+        newPoint[key] = aVal ?? bVal ?? 0;
+      }
     }
     augmented.push(newPoint);
   }

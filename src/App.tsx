@@ -27,6 +27,8 @@ interface EDMParameters {
   kerfTaper: number;
   hazDepth: number;
   linearEnergy: number;
+  // For ML input encoding
+  materialIndex?: number;
 }
 // Returns the weighted average of predictions from all trained models (SVM, ANN, ELM, GA) for each output metric
 function getEnsemblePrediction(
@@ -172,16 +174,49 @@ function App() {
 
   // Calculate process metrics based on current parameters
   const processMetrics = useMemo(() => {
-    // Example calculations using only pulseOnTime, pulseOffTime, and current
-    // These formulas are placeholders and should be replaced with domain-specific logic if available
-    const cuttingEnergy = parameters.pulseOnTime * parameters.current * 0.5; // µs * A * factor
-    const cuttingSpeed = Math.max(0.1, (parameters.pulseOnTime / (parameters.pulseOffTime + 1)) * 0.1); // derived speed
-    const powerConsumption = parameters.current * parameters.pulseOnTime * 0.01; // A * µs * factor
+    // Refined Wire EDM formulas
+    // Typical voltage for Wire EDM (if not provided)
+    const VOLTAGE = 60; // Volts
+    const { pulseOnTime, pulseOffTime, current } = parameters;
+    const pulseSum = pulseOnTime + pulseOffTime;
+    // Avoid division by zero
+    const safePulseSum = pulseSum === 0 ? 1 : pulseSum;
+
+    // Material Removal Rate (MRR) [mm^3/min] (empirical, simplified)
+    // MRR = K * Voltage * Current * PulseOnTime / (PulseOnTime + PulseOffTime)
+    // K is a scaling factor to bring result to mm^3/min, set to 0.001 for demo
+    const K_MRR = 0.001;
+    const materialRemovalRate = K_MRR * VOLTAGE * current * pulseOnTime / safePulseSum;
+
+    // Power Consumption [kW]
+    // Power = Voltage * Current * DutyCycle / 1000 (to kW)
+    // DutyCycle = PulseOnTime / (PulseOnTime + PulseOffTime)
+    const dutyCycle = pulseSum === 0 ? 0 : pulseOnTime / safePulseSum;
+    const powerConsumption = VOLTAGE * current * dutyCycle / 1000;
+
+    // Surface Quality (Ra, µm)
+    // Empirical: Ra increases with pulseOnTime and current
+    // Ra = a + b * pulseOnTime + c * current
+    // Typical: a=0.5, b=0.02, c=0.03
+    const surfaceQuality = Math.max(0.1, 0.5 + 0.02 * pulseOnTime + 0.03 * current);
+
+    // Cutting Energy (J/mm) - keep as before
+    const cuttingEnergy = pulseOnTime * current * 0.5;
+
+    // Cutting Speed (m/min) - relate to MRR if possible
+    // For demo, cuttingSpeed = materialRemovalRate / 100
+    const cuttingSpeed = Math.max(0.1, materialRemovalRate / 100);
+
+    // Estimated Cost Per Hour
     const estimatedCostPerHour = powerConsumption * 0.15 + 20;
-    const materialRemovalRate = cuttingSpeed * parameters.current * 0.5; // derived
-    const surfaceQuality = Math.max(0.1, 5 - parameters.pulseOnTime * 0.05); // lower pulseOnTime = better quality
-    const precisionLevel = Math.max(0.001, 0.01 - parameters.pulseOffTime * 0.001); // lower pulseOffTime = better precision
-    const efficiency = Math.min(100, (cuttingSpeed * powerConsumption) / 10);
+
+    // Precision Level (mm) - keep as before
+    const precisionLevel = Math.max(0.001, 0.01 - pulseOffTime * 0.001);
+
+    // Process Efficiency (%)
+    // Efficiency = (MRR * 60) / (PowerConsumption * 1000) * 100
+    // (volume removed per kWh)
+    const efficiency = powerConsumption > 0 ? Math.min(100, (materialRemovalRate * 60) / (powerConsumption * 1000) * 100) : 0;
 
     return {
       cuttingEnergy,
@@ -195,16 +230,29 @@ function App() {
     };
   }, [parameters]);
 
-  const handleParameterChange = useCallback((key: keyof EDMParameters, value: number) => {
+  // Helper: get material index for Wire EDM
+  const getMaterialIndex = (material: string) => {
+    const wireMaterials = [
+      'Steel', 'Stainless Steel', 'Titanium', 'Aluminum', 'Copper', 'Carbide', 'Nickel'
+    ];
+    return wireMaterials.indexOf(material);
+  };
+
+  const handleParameterChange = useCallback((key: keyof EDMParameters, value: EDMParameters[keyof EDMParameters]) => {
     setParameters(prev => ({ ...prev, [key]: value }));
-    
+
     // Update predictions for all trained models
     const newPredictions: Record<string, any> = {};
     Object.entries(trainedModels).forEach(([modelType, model]) => {
-      newPredictions[modelType] = model.predict({ ...parameters, [key]: value });
+      // Add material index to prediction input for Wire EDM
+      let inputParams = { ...parameters, [key]: value };
+      if (cuttingMethod === 'wire') {
+        inputParams.materialIndex = getMaterialIndex(inputParams.material);
+      }
+      newPredictions[modelType] = model.predict(inputParams);
     });
     setPredictions(newPredictions);
-  }, [trainedModels, parameters]);
+  }, [trainedModels, parameters, cuttingMethod]);
 
   const handleToggleSimulation = () => {
     setIsSimulationRunning(prev => !prev);
