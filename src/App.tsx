@@ -11,6 +11,11 @@ import { loadEDMDataset, EDMTrainingData } from './utils/datasetLoader';
 
 
 interface EDMParameters {
+  // Primary Wire EDM experimental parameters
+  pulseOnTime: number;
+  pulseOffTime: number;
+  current: number;
+  // Other parameters
   material: string;
   grade: string;
   thickness: number;
@@ -132,6 +137,9 @@ function App() {
     })();
   }, []);
   const [parameters, setParameters] = useState<EDMParameters>({
+    pulseOnTime: 1,
+    pulseOffTime: 1,
+    current: 1,
     material: 'Mild Steel',
     grade: 'S355JR',
     thickness: 4,
@@ -164,15 +172,17 @@ function App() {
 
   // Calculate process metrics based on current parameters
   const processMetrics = useMemo(() => {
-    const cuttingEnergy = parameters.linearEnergy;
-    const cuttingSpeed = parameters.speed / 1000; // Convert mm/min to m/min
-    const powerConsumption = parameters.laserPower;
-    const estimatedCostPerHour = powerConsumption * 0.15 + 20 + (parameters.thickness * 2);
-    const materialRemovalRate = (parameters.speed * parameters.thickness) / 1000; // mm³/min
-    const surfaceQuality = Math.max(0.1, parameters.surfaceRoughness);
-    const precisionLevel = Math.max(0.001, parameters.deviation);
-    const efficiency = Math.min(100, (parameters.speed * parameters.laserPower) / (parameters.thickness * 100));
-    
+    // Example calculations using only pulseOnTime, pulseOffTime, and current
+    // These formulas are placeholders and should be replaced with domain-specific logic if available
+    const cuttingEnergy = parameters.pulseOnTime * parameters.current * 0.5; // µs * A * factor
+    const cuttingSpeed = Math.max(0.1, (parameters.pulseOnTime / (parameters.pulseOffTime + 1)) * 0.1); // derived speed
+    const powerConsumption = parameters.current * parameters.pulseOnTime * 0.01; // A * µs * factor
+    const estimatedCostPerHour = powerConsumption * 0.15 + 20;
+    const materialRemovalRate = cuttingSpeed * parameters.current * 0.5; // derived
+    const surfaceQuality = Math.max(0.1, 5 - parameters.pulseOnTime * 0.05); // lower pulseOnTime = better quality
+    const precisionLevel = Math.max(0.001, 0.01 - parameters.pulseOffTime * 0.001); // lower pulseOffTime = better precision
+    const efficiency = Math.min(100, (cuttingSpeed * powerConsumption) / 10);
+
     return {
       cuttingEnergy,
       cuttingSpeed,

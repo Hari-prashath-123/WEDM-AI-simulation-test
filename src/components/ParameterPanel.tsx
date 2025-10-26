@@ -3,6 +3,7 @@ import { Zap, Clock, Gauge, Wind } from 'lucide-react';
 import { cuttingMethods } from '../types/cuttingMethods';
 
 interface EDMParameters {
+  // Only keep for typing, but UI will use pulseOnTime, pulseOffTime, current
   material: string;
   grade: string;
   thickness: number;
@@ -24,95 +25,40 @@ interface ParameterPanelProps {
 
 const ParameterPanel: React.FC<ParameterPanelProps> = ({ parameters, cuttingMethod, onParameterChange }) => {
   const currentMethod = cuttingMethods[cuttingMethod];
-  
-  const materialOptions = ['Mild Steel', 'Stainless Steel', 'Aluminium', 'Titanium', 'Nickel'];
-  const gradeOptions = {
-    'Mild Steel': ['S355JR'],
-    'Stainless Steel': ['AISI 304'],
-    'Aluminium': ['Al-6061'],
-    'Titanium': ['Ti6Al4V'],
-    'Nickel': ['Alloy 625', 'Alloy 718', 'Pure Ni']
-  };
-  const gasOptions = ['O₂ @ 0.40 bar', 'N₂ @ 1.0 bar', 'N₂ @ 1.2 bar', 'N₂ @ 1.5 bar'];
 
   // Dynamic parameter configs based on cutting method
   const getParameterConfigs = () => {
     if (!currentMethod) return [];
-    
-    const configs = [
-      { 
-        key: 'thickness', 
-        label: `${currentMethod.parameters.thickness.label} (${currentMethod.parameters.thickness.unit})`, 
-        min: currentMethod.parameters.thickness.min, 
-        max: Math.min(currentMethod.parameters.thickness.max, 50), 
-        step: 0.5, 
-        icon: Gauge, 
-        color: 'text-blue-400' 
+    // Only show configs for pulseOnTime, pulseOffTime, current
+    return [
+      {
+        key: 'pulseOnTime',
+        label: `${currentMethod.parameters.power.label} (${currentMethod.parameters.power.unit})`,
+        min: currentMethod.parameters.power.min,
+        max: currentMethod.parameters.power.max,
+        step: 1,
+        icon: Clock,
+        color: 'text-yellow-400'
       },
-      { 
-        key: 'laserPower', 
-        label: `${currentMethod.parameters.power.label} (${currentMethod.parameters.power.unit})`, 
-        min: currentMethod.parameters.power.min, 
-        max: currentMethod.parameters.power.max, 
-        step: cuttingMethod === 'laser' ? 0.1 : cuttingMethod === 'water' ? 1000 : cuttingMethod === 'cnc' ? 1 : 1, 
-        icon: Zap, 
-        color: 'text-yellow-400' 
+      {
+        key: 'pulseOffTime',
+        label: `${currentMethod.parameters.speed.label} (${currentMethod.parameters.speed.unit})`,
+        min: currentMethod.parameters.speed.min,
+        max: currentMethod.parameters.speed.max,
+        step: 1,
+        icon: Clock,
+        color: 'text-blue-400'
       },
-      { 
-        key: 'speed', 
-        label: `${currentMethod.parameters.speed.label} (${currentMethod.parameters.speed.unit})`, 
-        min: currentMethod.parameters.speed.min, 
-        max: currentMethod.parameters.speed.max, 
-        step: 25, 
-        icon: Wind, 
-        color: 'text-green-400' 
-      },
-      { 
-        key: 'surfaceRoughness', 
-        label: 'Ra (µm)', 
-        min: 0.1, 
-        max: cuttingMethod === 'wire' ? 0.8 : cuttingMethod === 'laser' ? 6.3 : cuttingMethod === 'water' ? 6.3 : 3.2, 
-        step: 0.1, 
-        icon: Gauge, 
-        color: 'text-cyan-400' 
-      },
-      { 
-        key: 'deviation', 
-        label: `Tolerance (${currentMethod.parameters.precision.unit})`, 
-        min: currentMethod.parameters.precision.min, 
-        max: currentMethod.parameters.precision.max, 
-        step: 0.001, 
-        icon: Gauge, 
-        color: 'text-purple-400' 
-      }
-    ];
-
-    // Add method-specific parameters
-    if (currentMethod.parameters.specialParam1) {
-      configs.push({
-        key: 'hazDepth',
+      currentMethod.parameters.specialParam1 ? {
+        key: 'current',
         label: `${currentMethod.parameters.specialParam1.label} (${currentMethod.parameters.specialParam1.unit})`,
         min: currentMethod.parameters.specialParam1.min,
         max: currentMethod.parameters.specialParam1.max,
-        step: cuttingMethod === 'water' ? 0.1 : cuttingMethod === 'cnc' ? 100 : 1,
-        icon: Gauge,
-        color: 'text-red-400'
-      });
-    }
-
-    if (currentMethod.parameters.specialParam2) {
-      configs.push({
-        key: 'linearEnergy',
-        label: `${currentMethod.parameters.specialParam2.label} (${currentMethod.parameters.specialParam2.unit})`,
-        min: currentMethod.parameters.specialParam2.min,
-        max: currentMethod.parameters.specialParam2.max,
-        step: cuttingMethod === 'water' ? 0.1 : cuttingMethod === 'cnc' ? 0.1 : 1,
+        step: 1,
         icon: Zap,
-        color: 'text-pink-400'
-      });
-    }
-
-    return configs;
+        color: 'text-red-400'
+      } : null
+    ].filter(Boolean);
   };
 
   const parameterConfigs = getParameterConfigs();
@@ -140,102 +86,40 @@ const ParameterPanel: React.FC<ParameterPanelProps> = ({ parameters, cuttingMeth
       )}
       
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-        {/* Material Selection */}
-        <div className="space-y-2">
-          <label className="text-xs sm:text-sm font-medium text-gray-300 flex items-center gap-2">
-            <Gauge className="w-3 h-3 sm:w-4 sm:h-4 text-blue-400" />
-            Material
-          </label>
-          <select
-            value={parameters.material}
-            onChange={(e) => {
-              const newMaterial = e.target.value;
-              const newGrade = gradeOptions[newMaterial as keyof typeof gradeOptions][0];
-              onParameterChange('material', newMaterial as any);
-              onParameterChange('grade', newGrade as any);
-            }}
-            className="w-full px-3 py-2 bg-gray-700 text-white rounded text-sm border border-gray-600 focus:border-blue-500"
-          >
-            {materialOptions.filter(material => 
-              !currentMethod || currentMethod.capabilities.materials.some(m => 
-                m.toLowerCase().includes(material.toLowerCase().replace(' steel', '').replace('aluminium', 'aluminum'))
-              )
-            ).map(material => (
-              <option key={material} value={material}>
-                {material}
-                {currentMethod && !currentMethod.capabilities.materials.some(m => 
-                  m.toLowerCase().includes(material.toLowerCase().replace(' steel', '').replace('aluminium', 'aluminum'))
-                ) && ' (Limited Support)'}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Grade Selection */}
-        <div className="space-y-2">
-          <label className="text-xs sm:text-sm font-medium text-gray-300 flex items-center gap-2">
-            <Gauge className="w-3 h-3 sm:w-4 sm:h-4 text-green-400" />
-            Grade
-          </label>
-          <select
-            value={parameters.grade}
-            onChange={(e) => onParameterChange('grade', e.target.value as any)}
-            className="w-full px-3 py-2 bg-gray-700 text-white rounded text-sm border border-gray-600 focus:border-blue-500"
-          >
-            {gradeOptions[parameters.material as keyof typeof gradeOptions]?.map(grade => (
-              <option key={grade} value={grade}>{grade}</option>
-            ))}
-          </select>
-        </div>
-        {parameterConfigs.map(({ key, label, min, max, step, icon: Icon, color }) => (
-          <div key={key} className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs sm:text-sm font-medium text-gray-300 flex items-center gap-2">
-                <Icon className={`w-3 h-3 sm:w-4 sm:h-4 ${color}`} />
-                <span className="truncate">{label}</span>
-              </label>
-              <span className="text-xs sm:text-sm font-mono text-white bg-gray-700 px-2 py-1 rounded min-w-0 flex-shrink-0">
-                {typeof parameters[key as keyof EDMParameters] === 'number' ? parameters[key as keyof EDMParameters] : ''}
-              </span>
+        {parameterConfigs.map((config) => {
+          if (!config) return null;
+          const { key, label, min, max, step, icon: Icon, color } = config;
+          return (
+            <div key={key} className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs sm:text-sm font-medium text-gray-300 flex items-center gap-2">
+                  <Icon className={`w-3 h-3 sm:w-4 sm:h-4 ${color}`} />
+                  <span className="truncate">{label}</span>
+                </label>
+                <span className="text-xs sm:text-sm font-mono text-white bg-gray-700 px-2 py-1 rounded min-w-0 flex-shrink-0">
+                  {typeof parameters[key as keyof EDMParameters] === 'number' ? parameters[key as keyof EDMParameters] : ''}
+                </span>
+              </div>
+              {typeof parameters[key as keyof EDMParameters] === 'number' && (
+              <input
+                type="range"
+                min={min}
+                max={max}
+                step={step}
+                value={parameters[key as keyof EDMParameters] as number}
+                onChange={(e) => onParameterChange(key as keyof EDMParameters, parseFloat(e.target.value))}
+                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+              />
+              )}
+              {typeof parameters[key as keyof EDMParameters] === 'number' && (
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>{min}</span>
+                <span>{max}</span>
+              </div>
+              )}
             </div>
-            {typeof parameters[key as keyof EDMParameters] === 'number' && (
-            <input
-              type="range"
-              min={min}
-              max={max}
-              step={step}
-              value={parameters[key as keyof EDMParameters] as number}
-              onChange={(e) => onParameterChange(key as keyof EDMParameters, parseFloat(e.target.value))}
-              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-            />
-            )}
-            {typeof parameters[key as keyof EDMParameters] === 'number' && (
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>{min}</span>
-              <span>{max}</span>
-            </div>
-            )}
-          </div>
-        ))}
-
-        {/* Gas & Pressure Selection - only for laser and some methods */}
-        {(cuttingMethod === 'laser' || cuttingMethod === 'water') && (
-        <div className="space-y-2 sm:col-span-2">
-          <label className="text-xs sm:text-sm font-medium text-gray-300 flex items-center gap-2">
-            <Wind className="w-3 h-3 sm:w-4 sm:h-4 text-cyan-400" />
-            {cuttingMethod === 'laser' ? 'Assist Gas & Pressure' : 'Abrasive & Water Flow'}
-          </label>
-          <select
-            value={parameters.gasAndPressure}
-            onChange={(e) => onParameterChange('gasAndPressure', e.target.value as any)}
-            className="w-full px-3 py-2 bg-gray-700 text-white rounded text-sm border border-gray-600 focus:border-blue-500"
-          >
-            {(cuttingMethod === 'laser' ? gasOptions : ['Garnet + Water', 'Aluminum Oxide + Water', 'Steel Grit + Water']).map(gas => (
-              <option key={gas} value={gas}>{gas}</option>
-            ))}
-          </select>
-        </div>
-        )}
+          );
+        })}
       </div>
     </div>
   );

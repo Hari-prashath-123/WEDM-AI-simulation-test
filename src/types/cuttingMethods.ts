@@ -33,12 +33,12 @@ export const cuttingMethods: Record<string, CuttingMethod> = {
     description: 'Electrical Discharge Machining with wire electrode',
     icon: '⚡',
     parameters: {
-      power: { min: 20, max: 300, unit: 'V', label: 'Voltage' },
-      speed: { min: 10, max: 500, unit: 'mm/min', label: 'Wire Speed' },
-      precision: { min: 0.001, max: 0.01, unit: 'mm', label: 'Tolerance' },
-      thickness: { min: 0.1, max: 300, unit: 'mm', label: 'Max Thickness' },
-      specialParam1: { min: 1, max: 50, unit: 'A', label: 'Current' },
-      specialParam2: { min: 0.5, max: 20, unit: 'L/min', label: 'Dielectric Flow' }
+      power: { min: 1, max: 60, unit: 'µs', label: 'Pulse On Time (µs)' },
+      speed: { min: 1, max: 10, unit: 'µs', label: 'Pulse Off Time (µs)' },
+      precision: { min: 0, max: 0, unit: '', label: 'N/A' },
+      thickness: { min: 0, max: 0, unit: '', label: 'N/A' },
+      specialParam1: { min: 1, max: 10, unit: 'A?', label: 'Current (A?)' }
+      // Removed specialParam2
     },
     capabilities: {
       materials: ['Steel', 'Stainless Steel', 'Titanium', 'Aluminum', 'Copper', 'Carbide', 'Nickel'], // Added Nickel
