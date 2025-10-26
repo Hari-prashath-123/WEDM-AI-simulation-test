@@ -121,12 +121,12 @@ export async function trainSVM(
     const { trainData: train, testData: test } = folds[foldIdx];
     // Prepare features and targets for train and test
     const trainFeatures = train.map(d => [
-      d.voltage / 300,
-      d.current / 50,
       d.pulseOnTime / 100,
       d.pulseOffTime / 200,
-      d.wireSpeed / 500,
-      d.dielectricFlow / 20
+      d.current / 50,
+      d.processingTime / 400,
+      0,
+      0
     ]);
     const trainTargets = train.map(d => [
       d.materialRemovalRate,
@@ -135,12 +135,12 @@ export async function trainSVM(
       d.processingTime
     ]);
     const testFeatures = test.map(d => [
-      d.voltage / 300,
-      d.current / 50,
       d.pulseOnTime / 100,
       d.pulseOffTime / 200,
-      d.wireSpeed / 500,
-      d.dielectricFlow / 20
+      d.current / 50,
+      d.processingTime / 400,
+      0,
+      0
     ]);
     const testTargets = test.map(d => [
       d.materialRemovalRate,
@@ -183,19 +183,19 @@ export async function trainSVM(
   // Use last weights for prediction
   const predict = (params: any) => {
     const input = [
-      (params.laserPower || 3) / 6,
-      (params.speed || 3000) / 6000,
-      (params.thickness || 4) / 10,
-      (params.linearEnergy || 60) / 250,
-      (params.speed || 3000) / 6000,
-      (params.surfaceRoughness || 1.3) / 5
+      (params.pulseOnTime || 50) / 100,
+      (params.pulseOffTime || 100) / 200,
+      (params.current || 10) / 50,
+      (params.processingTime || 200) / 400,
+      0,
+      0
     ];
     const result = predictSVM(input, weights);
     return {
-      materialRemovalRate: Math.max(0.1, result[0] * 2),
+      materialRemovalRate: Math.max(0.1, result[0]),
       surfaceRoughness: Math.max(0.1, Math.min(5, result[1])),
-      dimensionalAccuracy: Math.max(1, Math.min(100, result[2] * 10)),
-      processingTime: Math.max(1, Math.min(300, result[3] * 5))
+      dimensionalAccuracy: Math.max(1, Math.min(100, result[2])),
+      processingTime: Math.max(1, Math.min(400, result[3] * 400))
     };
   };
   return {
@@ -260,20 +260,20 @@ export async function trainANN(
       const { trainData: train, testData: test } = folds[foldIdx];
       // Prepare features and targets
       const trainFeatures = train.map(d => [
-        d.voltage / 300,
-        d.current / 50,
         d.pulseOnTime / 100,
         d.pulseOffTime / 200,
-        d.wireSpeed / 500,
-        d.dielectricFlow / 20
+        d.current / 50,
+        d.processingTime / 400,
+        0,
+        0
       ]);
       const testFeatures = test.map(d => [
-        d.voltage / 300,
-        d.current / 50,
         d.pulseOnTime / 100,
         d.pulseOffTime / 200,
-        d.wireSpeed / 500,
-        d.dielectricFlow / 20
+        d.current / 50,
+        d.processingTime / 400,
+        0,
+        0
       ]);
       // Conditionally apply feature engineering
       const engineeredTrainFeatures = useFeatureEngineering ? engineerFeatures(trainFeatures) : trainFeatures;
@@ -442,22 +442,22 @@ export async function trainANN(
   }
   const predict = (params: any) => {
     const input = [
-      (params.laserPower || 3) / 6,
-      (params.speed || 3000) / 6000,
-      (params.thickness || 4) / 10,
-      (params.linearEnergy || 60) / 250,
-      (params.speed || 3000) / 6000,
-      (params.surfaceRoughness || 1.3) / 5
+      (params.pulseOnTime || 50) / 100,
+      (params.pulseOffTime || 100) / 200,
+      (params.current || 10) / 50,
+      (params.processingTime || 200) / 400,
+      0,
+      0
     ];
     const engineeredInput = engineerFeatures([input])[0];
     const inputTensor = tf.tensor2d([engineeredInput], [1, 9]);
     const outputTensor = finalModel.predict(inputTensor) as tf.Tensor;
     const result = outputTensor.dataSync();
     return {
-      materialRemovalRate: Math.max(0.1, result[0] * 10),
-      surfaceRoughness: Math.max(0.1, Math.min(5, result[1] * 5)),
-      dimensionalAccuracy: Math.max(1, Math.min(100, result[2] * 100)),
-      processingTime: Math.max(1, Math.min(300, result[3] * 100))
+      materialRemovalRate: Math.max(0.1, result[0]),
+      surfaceRoughness: Math.max(0.1, Math.min(5, result[1])),
+      dimensionalAccuracy: Math.max(1, Math.min(100, result[2])),
+      processingTime: Math.max(1, Math.min(400, result[3] * 400))
     };
   };
   return {
@@ -575,19 +575,19 @@ export async function trainELM(
   // Use last weights for prediction
   const predict = (params: any) => {
     const input = [
-      (params.laserPower || 3) / 6,
-      (params.speed || 3000) / 6000,
-      (params.thickness || 4) / 10,
-      (params.linearEnergy || 60) / 250,
-      (params.speed || 3000) / 6000,
-      (params.surfaceRoughness || 1.3) / 5
+      (params.pulseOnTime || 50) / 100,
+      (params.pulseOffTime || 100) / 200,
+      (params.current || 10) / 50,
+      (params.processingTime || 200) / 400,
+      0,
+      0
     ];
     const result = predictELM(input, inputWeights, biases, outputWeights);
     return {
-      materialRemovalRate: Math.max(0.1, result[0] * 10),
-      surfaceRoughness: Math.max(0.1, Math.min(5, result[1] * 5)),
-      dimensionalAccuracy: Math.max(1, Math.min(100, result[2] * 100)),
-      processingTime: Math.max(1, Math.min(300, result[3] * 100))
+      materialRemovalRate: Math.max(0.1, result[0]),
+      surfaceRoughness: Math.max(0.1, Math.min(5, result[1])),
+      dimensionalAccuracy: Math.max(1, Math.min(100, result[2])),
+      processingTime: Math.max(1, Math.min(400, result[3] * 400))
     };
   };
   return {
@@ -648,32 +648,32 @@ export async function trainGA(
     const chromosomeLength = 6 * 4 + 4;
     // Prepare training and test data
     const trainFeatures = train.map(d => [
-      d.voltage / 300,
-      d.current / 50,
       d.pulseOnTime / 100,
       d.pulseOffTime / 200,
-      d.wireSpeed / 500,
-      d.dielectricFlow / 20
+      d.current / 50,
+      d.processingTime / 400,
+      0,
+      0
     ]);
     const trainTargets = train.map(d => [
-      d.materialRemovalRate / 10,
-      d.surfaceRoughness / 5,
-      d.dimensionalAccuracy / 100,
-      d.processingTime / 100
+      d.materialRemovalRate,
+      d.surfaceRoughness,
+      d.dimensionalAccuracy,
+      d.processingTime
     ]);
     const testFeatures = test.map(d => [
-      d.voltage / 300,
-      d.current / 50,
       d.pulseOnTime / 100,
       d.pulseOffTime / 200,
-      d.wireSpeed / 500,
-      d.dielectricFlow / 20
+      d.current / 50,
+      d.processingTime / 400,
+      0,
+      0
     ]);
     const testTargets = test.map(d => [
-      d.materialRemovalRate / 10,
-      d.surfaceRoughness / 5,
-      d.dimensionalAccuracy / 100,
-      d.processingTime / 100
+      d.materialRemovalRate,
+      d.surfaceRoughness,
+      d.dimensionalAccuracy,
+      d.processingTime
     ]);
     // Initialize population
     let population: number[][] = [];
@@ -743,19 +743,19 @@ export async function trainGA(
   // Use last bestChromosome for prediction
   const predict = (params: any) => {
     const input = [
-      (params.laserPower || 3) / 6,
-      (params.speed || 3000) / 6000,
-      (params.thickness || 4) / 10,
-      (params.linearEnergy || 60) / 250,
-      (params.speed || 3000) / 6000,
-      (params.surfaceRoughness || 1.3) / 5
+      (params.pulseOnTime || 50) / 100,
+      (params.pulseOffTime || 100) / 200,
+      (params.current || 10) / 50,
+      (params.processingTime || 200) / 400,
+      0,
+      0
     ];
     const result = predictGA(input, bestChromosome);
     return {
-      materialRemovalRate: Math.max(0.1, result[0] * 10),
-      surfaceRoughness: Math.max(0.1, Math.min(5, result[1] * 5)),
-      dimensionalAccuracy: Math.max(1, Math.min(100, result[2] * 100)),
-      processingTime: Math.max(1, Math.min(300, result[3] * 100))
+      materialRemovalRate: Math.max(0.1, result[0]),
+      surfaceRoughness: Math.max(0.1, Math.min(5, result[1])),
+      dimensionalAccuracy: Math.max(1, Math.min(100, result[2])),
+      processingTime: Math.max(1, Math.min(400, result[3] * 400))
     };
   };
   return {

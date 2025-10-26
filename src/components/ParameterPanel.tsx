@@ -25,12 +25,13 @@ interface ParameterPanelProps {
 const ParameterPanel: React.FC<ParameterPanelProps> = ({ parameters, cuttingMethod, onParameterChange }) => {
   const currentMethod = cuttingMethods[cuttingMethod];
   
-  const materialOptions = ['Mild Steel', 'Stainless Steel', 'Aluminium', 'Titanium'];
+  const materialOptions = ['Mild Steel', 'Stainless Steel', 'Aluminium', 'Titanium', 'Nickel'];
   const gradeOptions = {
     'Mild Steel': ['S355JR'],
     'Stainless Steel': ['AISI 304'],
     'Aluminium': ['Al-6061'],
-    'Titanium': ['Ti6Al4V']
+    'Titanium': ['Ti6Al4V'],
+    'Nickel': ['Alloy 625', 'Alloy 718', 'Pure Ni']
   };
   const gasOptions = ['O₂ @ 0.40 bar', 'N₂ @ 1.0 bar', 'N₂ @ 1.2 bar', 'N₂ @ 1.5 bar'];
 
@@ -194,21 +195,21 @@ const ParameterPanel: React.FC<ParameterPanelProps> = ({ parameters, cuttingMeth
                 <span className="truncate">{label}</span>
               </label>
               <span className="text-xs sm:text-sm font-mono text-white bg-gray-700 px-2 py-1 rounded min-w-0 flex-shrink-0">
-                {typeof parameters[key] === 'number' ? parameters[key] : ''}
+                {typeof parameters[key as keyof EDMParameters] === 'number' ? parameters[key as keyof EDMParameters] : ''}
               </span>
             </div>
-            {typeof parameters[key] === 'number' && (
+            {typeof parameters[key as keyof EDMParameters] === 'number' && (
             <input
               type="range"
               min={min}
               max={max}
               step={step}
-              value={parameters[key] as number}
-              onChange={(e) => onParameterChange(key, parseFloat(e.target.value))}
+              value={parameters[key as keyof EDMParameters] as number}
+              onChange={(e) => onParameterChange(key as keyof EDMParameters, parseFloat(e.target.value))}
               className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
             />
             )}
-            {typeof parameters[key] === 'number' && (
+            {typeof parameters[key as keyof EDMParameters] === 'number' && (
             <div className="flex justify-between text-xs text-gray-500">
               <span>{min}</span>
               <span>{max}</span>

@@ -41,7 +41,7 @@ export const cuttingMethods: Record<string, CuttingMethod> = {
       specialParam2: { min: 0.5, max: 20, unit: 'L/min', label: 'Dielectric Flow' }
     },
     capabilities: {
-      materials: ['Steel', 'Stainless Steel', 'Titanium', 'Aluminum', 'Copper', 'Carbide'],
+      materials: ['Steel', 'Stainless Steel', 'Titanium', 'Aluminum', 'Copper', 'Carbide', 'Nickel'], // Added Nickel
       maxThickness: 300,
       precision: 0.001,
       surfaceFinish: 'Ra 0.1-0.8 μm',
@@ -64,7 +64,7 @@ export const cuttingMethods: Record<string, CuttingMethod> = {
       specialParam2: { min: 0.5, max: 4.0, unit: 'L/min', label: 'Water Flow' }
     },
     capabilities: {
-      materials: ['Steel', 'Stainless Steel', 'Aluminum', 'Titanium', 'Glass', 'Stone', 'Composites'],
+      materials: ['Steel', 'Stainless Steel', 'Aluminum', 'Titanium', 'Glass', 'Stone', 'Composites', 'Nickel'], // Added Nickel
       maxThickness: 200,
       precision: 0.05,
       surfaceFinish: 'Ra 1.6-6.3 μm',
@@ -87,7 +87,7 @@ export const cuttingMethods: Record<string, CuttingMethod> = {
       specialParam2: { min: 50, max: 300, unit: 'J/mm', label: 'Linear Energy' }
     },
     capabilities: {
-      materials: ['Steel', 'Stainless Steel', 'Aluminum', 'Copper', 'Plastics', 'Wood'],
+      materials: ['Steel', 'Stainless Steel', 'Aluminum', 'Copper', 'Plastics', 'Wood', 'Nickel'], // Added Nickel
       maxThickness: 50,
       precision: 0.05,
       surfaceFinish: 'Ra 0.8-6.3 μm',
@@ -110,7 +110,7 @@ export const cuttingMethods: Record<string, CuttingMethod> = {
       specialParam2: { min: 0.1, max: 5.0, unit: 'mm', label: 'Tool Diameter' }
     },
     capabilities: {
-      materials: ['Steel', 'Stainless Steel', 'Aluminum', 'Titanium', 'Plastics', 'Composites'],
+      materials: ['Steel', 'Stainless Steel', 'Aluminum', 'Titanium', 'Plastics', 'Composites', 'Nickel'], // Added Nickel
       maxThickness: 500,
       precision: 0.01,
       surfaceFinish: 'Ra 0.4-3.2 μm',

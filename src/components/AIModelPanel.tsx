@@ -178,26 +178,25 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
   };
 
   const downloadSampleDataset = () => {
-    // Use actual laser cutting parameters as sample data
+    // Wire EDM aluminum experimental sample data
     const sampleData = [
-      ['Material', 'Grade', 'Thickness (mm)', 'Laser Power (kW)', 'Speed (mm/min)', 'Gas & Pressure', 'Ra (µm)', 'Deviation (mm)', 'Kerf Taper (mm)', 'HAZ Depth (µm)', 'Linear Energy (J/mm)'],
-      ['Mild Steel', 'S355JR', '4', '3.0', '2900', 'O₂ @ 0.40 bar', '1.3', '0.225', '0.03', '33', '62.07'],
-      ['Mild Steel', 'S355JR', '6', '3.9', '3240', 'O₂ @ 0.55 bar', '1.1', '0.096', '0.15', '205', '72.22'],
-      ['Stainless Steel', 'AISI 304', '2', '3.0', '4000', 'N₂ @ 1.0 bar', '0.9', '0.080', '0.01', '20', '45.00'],
-      ['Stainless Steel', 'AISI 304', '4', '4.0', '3500', 'N₂ @ 1.2 bar', '0.8', '0.090', '0.02', '30', '68.57'],
-      ['Aluminium', 'Al-6061', '2', '2.5', '4500', 'N₂ @ 0.8 bar', '0.7', '0.070', '0.01', '15', '33.33'],
-      ['Aluminium', 'Al-6061', '4', '3.5', '4000', 'N₂ @ 1.0 bar', '0.8', '0.080', '0.02', '20', '52.50'],
-      ['Titanium', 'Ti6Al4V', '2', '3.0', '3000', 'N₂ @ 1.5 bar', '0.8', '0.090', '0.01', '25', '60.00'],
-      ['Titanium', 'Ti6Al4V', '4', '4.0', '2500', 'N₂ @ 1.7 bar', '0.9', '0.100', '0.02', '35', '96.00']
+      ['PulseOn', 'PulseOff', 'Current', 'TimeSeconds'],
+      ['1-45', '1-6', '1-4', '275'],
+      ['1-45', '2-7', '2-5', '272'],
+      ['1-45', '3-8', '3-6', '283'],
+      ['2-50', '1-6', '2-5', '286'],
+      ['2-50', '2-7', '3-6', '284'],
+      ['2-50', '3-8', '1-4', '301'],
+      ['3-55', '1-6', '3-6', '318'],
+      ['3-55', '2-7', '1-6', '316'],
+      ['3-55', '3-8', '2-5', '312']
     ];
-    
     const csvContent = sampleData.map(row => row.join(',')).join('\n');
-
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'laser_cutting_parameters_sample.csv';
+    a.download = 'wire_edm_aluminum_data_sample.csv';
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -255,7 +254,7 @@ const AIModelPanel: React.FC<AIModelPanelProps> = ({ onTrainModel, trainingResul
                 className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
               />
               <label htmlFor="useRealDataset" className="text-sm text-gray-300">
-                Use built-in laser cutting dataset (78 samples)
+                Use built-in Wire EDM Aluminum Experimental Data (9 samples)
               </label>
             </div>
             <div className="flex items-center gap-2">

@@ -1,3 +1,31 @@
+// Wire EDM experimental data interface
+export interface WireEdmExperimentData {
+  pulseOn: string;
+  pulseOff: string;
+  current: string;
+  timeSeconds: number;
+}
+
+// Parse wire EDM CSV data
+export function parseWireEdmCsv(csvText: string): WireEdmExperimentData[] {
+  const lines = csvText.split('\n').filter(line => line.trim());
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+  const data: WireEdmExperimentData[] = [];
+  for (const line of lines.slice(1)) {
+    const values = line.split(',').map(v => v.trim());
+    if (values.length < 4) continue;
+    // Parse timeSeconds as number
+    const timeSeconds = Number(values[3]);
+    if (isNaN(timeSeconds)) continue;
+    data.push({
+      pulseOn: values[0],
+      pulseOff: values[1],
+      current: values[2],
+      timeSeconds,
+    });
+  }
+  return data;
+}
 /**
  * Splits a dataset into k folds for cross-validation.
  * Each fold returns an object with trainData and testData arrays.
@@ -205,31 +233,48 @@ export function parseCSVData(csvText: string): LaserCuttingData[] {
 // Load and convert the dataset
 export async function loadEDMDataset(): Promise<{ trainData: EDMTrainingData[]; testData: EDMTrainingData[]; mean: { [key: string]: number }; std: { [key: string]: number } }> {
   try {
-    // Try to load the CSV file from the assets directory
-    const response = await fetch('/src/assets/laser_cutting_parameters.csv');
+    // Load the wire EDM CSV file
+    const response = await fetch('/src/assets/wire_edm_aluminum_data.csv');
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     const csvText = await response.text();
-    const laserData = parseCSVData(csvText);
-    if (laserData.length === 0) {
-      throw new Error('No valid data found in CSV file');
+    const wireData = parseWireEdmCsv(csvText);
+    if (wireData.length === 0) {
+      throw new Error('No valid data found in wire EDM CSV file');
     }
-    console.log(`Loaded ${laserData.length} laser cutting parameter records`);
-  const { trainData: laserTrain, testData: laserTest } = splitData(laserData);
-  // Scale features on LaserCuttingData
-  const { scaledTrain, scaledTest, mean, std } = scaleFeatures(laserTrain, laserTest);
-  // Convert to EDMTrainingData after scaling
-  const edmTrain = scaledTrain.map(convertLaserToEDM);
-  const edmTest = scaledTest.map(convertLaserToEDM);
-  return { trainData: edmTrain, testData: edmTest, mean, std };
+    console.log(`Loaded ${wireData.length} wire EDM experimental records`);
+    // Map to EDMTrainingData
+    const mapped: EDMTrainingData[] = wireData.map(row => {
+      // Helper to parse range string (e.g., '1-45') to number (use first value or average)
+      function parseRange(val: string): number {
+        if (!val) return 0;
+        const parts = val.split('-').map(Number).filter(n => !isNaN(n));
+        if (parts.length === 1) return parts[0];
+        if (parts.length === 2) return (parts[0] + parts[1]) / 2;
+        return 0;
+      }
+      return {
+        voltage: 0, // Not present, use 0
+        current: parseRange(row.current),
+        pulseOnTime: parseRange(row.pulseOn),
+        pulseOffTime: parseRange(row.pulseOff),
+        wireSpeed: 0, // Not present, use 0
+        dielectricFlow: 0, // Not present, use 0
+        materialRemovalRate: 0, // Not present, use 0
+        surfaceRoughness: 0, // Not present, use 0
+        dimensionalAccuracy: 0, // Not present, use 0
+        processingTime: row.timeSeconds,
+      };
+    });
+    const { trainData, testData } = splitData(mapped);
+    return { trainData, testData, mean: {}, std: {} };
   } catch (error) {
-    console.warn('Error loading CSV dataset, using synthetic data:', error);
+    console.warn('Error loading wire EDM CSV dataset, using synthetic data:', error);
     // Fallback to generated data
-  // For synthetic fallback, just split and return (no scaling)
-  const edmData = generateSyntheticData();
-  const { trainData, testData } = splitData(edmData);
-  return { trainData, testData, mean: {}, std: {} };
+    const edmData = generateSyntheticData();
+    const { trainData, testData } = splitData(edmData);
+    return { trainData, testData, mean: {}, std: {} };
   }
 }
 
