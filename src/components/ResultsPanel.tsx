@@ -1,3 +1,11 @@
+// Format seconds or minutes as M:SS
+// Format seconds or minutes as M:SS
+function formatMSS(time: number, isMinutes: boolean = false): string {
+  const totalSeconds = isMinutes ? Math.round(time * 60) : Math.round(time);
+  const mm = Math.floor(totalSeconds / 60);
+  const ss = totalSeconds % 60;
+  return `${mm}:${ss.toString().padStart(2, '0')}`;
+}
 // Horizontal bar chart for feature importance
 interface FeatureImportanceChartProps {
   featureImportance: Record<string, number>;
@@ -134,7 +142,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
     { 
       key: 'processingTime', 
       label: 'Predicted Cutting Time', 
-      unit: 'min', 
+      unit: '', // Will set per-model below
       icon: Clock, 
       color: 'text-orange-400',
       bgColor: 'bg-orange-400/10' 
@@ -440,7 +448,24 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({
                         </div>
                       </div>
                       <div className="font-mono text-xs sm:text-sm text-white">
-                        {typeof prediction[key] === 'number' ? prediction[key].toFixed(2) : prediction[key]} {unit}
+                        {(() => {
+                          if (key !== 'processingTime') {
+                            return `${typeof prediction[key] === 'number' ? prediction[key].toFixed(2) : prediction[key]} ${unit}`;
+                          }
+                          // For processingTime, show units per model and format as M:SS
+                          if (model === 'ELM' || model === 'GA') {
+                            return typeof prediction[key] === 'number'
+                              ? `${formatMSS(prediction[key])} (sec)`
+                              : prediction[key];
+                          }
+                          if (model === 'ANN') {
+                            return typeof prediction[key] === 'number'
+                              ? `${formatMSS(prediction[key], true)} (min)`
+                              : prediction[key];
+                          }
+                          // fallback
+                          return `${typeof prediction[key] === 'number' ? prediction[key] : ''}`;
+                        })()}
                       </div>
                     </div>
                   );
